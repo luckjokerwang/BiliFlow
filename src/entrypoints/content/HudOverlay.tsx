@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Sparkles,
   Zap,
@@ -9,9 +9,9 @@ import {
   Loader2,
   RefreshCw,
   HelpCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import {
-  ExtensionMessage,
   ExtensionResponse,
   HighlightItem,
   VideoSummaryResult,
@@ -29,6 +29,13 @@ export const HudOverlay: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [summary, setSummary] = useState<VideoSummaryResult | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const currentBvidRef = useRef<string>('');
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    setTimeout(() => setToastMsg(null), 1800);
+  };
 
   // Fetch or generate summary for current video
   const loadSummaryForCurrentVideo = useCallback(async (forceRefresh = false) => {
@@ -38,7 +45,7 @@ export const HudOverlay: React.FC = () => {
       return;
     }
 
-    // Need cid to fetch subtitles. If cid missing from window, fetch via web-interface
+    currentBvidRef.current = meta.bvid;
     let cid = meta.cid;
     let aid = meta.aid;
     let title = meta.title;
@@ -118,8 +125,32 @@ export const HudOverlay: React.FC = () => {
   // Jump to specific highlight
   const handleJump = useCallback((highlight: HighlightItem, index: number) => {
     setSelectedIndex(index);
-    seekToSeconds(highlight.timestamp);
+    const success = seekToSeconds(highlight.timestamp);
+    if (success) {
+      showToast(`已直达: [${highlight.timestampStr}] ${highlight.title}`);
+    }
   }, []);
+
+  // Monitor SPA route/video changes on Bilibili
+  useEffect(() => {
+    let lastUrl = window.location.href;
+    const interval = setInterval(() => {
+      const currentUrl = window.location.href;
+      if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        const meta = extractVideoMeta();
+        if (meta?.bvid && meta.bvid !== currentBvidRef.current) {
+          setSummary(null);
+          setError(null);
+          if (isOpen) {
+            loadSummaryForCurrentVideo();
+          }
+        }
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isOpen, loadSummaryForCurrentVideo]);
 
   // Global Keyboard Navigation
   useEffect(() => {
@@ -164,7 +195,9 @@ export const HudOverlay: React.FC = () => {
           e.preventDefault();
           setSelectedIndex((prev) => {
             const next = (prev + 1) % summary.highlights.length;
-            seekToSeconds(summary.highlights[next].timestamp);
+            const target = summary.highlights[next];
+            seekToSeconds(target.timestamp);
+            showToast(`[${target.timestampStr}] ${target.title}`);
             return next;
           });
           return;
@@ -175,7 +208,9 @@ export const HudOverlay: React.FC = () => {
           setSelectedIndex((prev) => {
             const next =
               (prev - 1 + summary.highlights.length) % summary.highlights.length;
-            seekToSeconds(summary.highlights[next].timestamp);
+            const target = summary.highlights[next];
+            seekToSeconds(target.timestamp);
+            showToast(`[${target.timestampStr}] ${target.title}`);
             return next;
           });
           return;
@@ -185,7 +220,7 @@ export const HudOverlay: React.FC = () => {
           e.preventDefault();
           const target = summary.highlights[selectedIndex];
           if (target) {
-            seekToSeconds(target.timestamp);
+            handleJump(target, selectedIndex);
           }
           return;
         }
@@ -199,7 +234,7 @@ export const HudOverlay: React.FC = () => {
   // If HUD is closed, render subtle floating trigger pill
   if (!isOpen) {
     return (
-      <div className="fixed top-20 right-6 z-[999999]">
+      <div className="fixed top-20 right-6 z-[999999]" aria-label="BiliFlow 快捷入口">
         <button
           onClick={() => {
             setIsOpen(true);
@@ -209,6 +244,7 @@ export const HudOverlay: React.FC = () => {
           }}
           className="group flex items-center gap-2 px-3.5 py-2 bg-slate-900/80 hover:bg-slate-900/95 text-slate-200 border border-slate-700/60 rounded-full shadow-lg backdrop-blur-md transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
           title="点击或按 Alt+S 唤起 BiliFlow"
+          aria-haspopup="dialog"
         >
           <Sparkles className="w-4 h-4 text-sky-400 group-hover:rotate-12 transition-transform duration-300" />
           <span className="text-xs font-medium tracking-wide">BiliFlow</span>
@@ -221,8 +257,21 @@ export const HudOverlay: React.FC = () => {
   }
 
   return (
-    <div className="fixed top-16 right-6 z-[999999] w-[420px] max-w-[calc(100vw-3rem)] animate-scale-in">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="BiliFlow 极速导航浮层"
+      className="fixed top-16 right-6 z-[999999] w-[420px] max-w-[calc(100vw-3rem)] animate-scale-in"
+    >
       <div className="flex flex-col bg-slate-900/92 text-slate-100 border border-slate-700/70 rounded-2xl shadow-2xl backdrop-blur-xl overflow-hidden">
+        {/* Toast Notification Banner */}
+        {toastMsg && (
+          <div className="bg-sky-500 text-white text-[11px] font-medium py-1 px-3 flex items-center justify-center gap-1.5 animate-fade-in shadow-inner">
+            <CheckCircle2 className="w-3.5 h-3.5" />
+            <span className="truncate">{toastMsg}</span>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/40">
           <div className="flex items-center gap-2">
@@ -247,6 +296,7 @@ export const HudOverlay: React.FC = () => {
               disabled={loading}
               className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
               title="重新生成总结"
+              aria-label="重新生成总结"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             </button>
@@ -254,6 +304,7 @@ export const HudOverlay: React.FC = () => {
               onClick={() => setIsOpen(false)}
               className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
               title="关闭 (Esc)"
+              aria-label="关闭浮层"
             >
               <X className="w-4 h-4" />
             </button>
@@ -309,7 +360,14 @@ export const HudOverlay: React.FC = () => {
                     return (
                       <div
                         key={item.id}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => handleJump(item, idx)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            handleJump(item, idx);
+                          }
+                        }}
                         className={`group relative p-2.5 rounded-xl border transition-all duration-150 cursor-pointer flex items-start gap-2.5 ${
                           isSelected
                             ? 'bg-sky-950/40 border-sky-500/50 shadow-sm'
