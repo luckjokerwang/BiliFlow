@@ -68,12 +68,15 @@ export interface ProviderConfig {
   icon?: string;
 }
 
+export type ThemeMode = 'dark' | 'light';
+
 export interface UserSettings {
   providers: ProviderConfig[];
   activeProviderId: string;
   activeModel: string;
   autoFetch: boolean;
-  shortcutToggle: string; // e.g. 'Alt+S' or 'Ctrl+Shift+S'
+  shortcutToggle: string; // e.g. 'Alt+S' or 'Ctrl+Shift+B'
+  theme: ThemeMode;       // 'dark' | 'light'
 }
 
 // ------------------------------------------

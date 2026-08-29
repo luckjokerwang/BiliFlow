@@ -11,13 +11,16 @@ import {
   HelpCircle,
   CheckCircle2,
   Settings,
+  RotateCcw,
 } from 'lucide-react';
 import {
+  ExtensionMessage,
   ExtensionResponse,
   HighlightItem,
   VideoSummaryResult,
   BiliRawSubtitleItem,
   UserSettings,
+  ThemeMode,
 } from '../../types';
 import {
   extractVideoMeta,
@@ -25,13 +28,41 @@ import {
   seekToSeconds,
 } from '../../utils/playerController';
 
+async function safeSendMessage<T = any>(
+  msg: ExtensionMessage
+): Promise<ExtensionResponse<T>> {
+  if (!chrome.runtime?.id) {
+    return {
+      success: false,
+      error: 'BiliFlow 扩展已更新或重载。请按 F5 刷新此网页即可恢复使用。',
+    };
+  }
+  try {
+    const res = await chrome.runtime.sendMessage(msg);
+    return res;
+  } catch (err: any) {
+    const errMsg = err?.message || String(err);
+    if (
+      errMsg.includes('Extension context invalidated') ||
+      errMsg.includes('Cannot read properties of undefined')
+    ) {
+      return {
+        success: false,
+        error: 'BiliFlow 扩展已更新。请按 F5 刷新当前网页以恢复连接。',
+      };
+    }
+    return { success: false, error: errMsg };
+  }
+}
+
 function matchesShortcut(e: KeyboardEvent, shortcutStr: string): boolean {
-  if (!shortcutStr) return e.altKey && (e.key === 's' || e.key === 'S');
+  if (!shortcutStr) return e.altKey && (e.key.toLowerCase() === 's' || e.code === 'KeyS');
+
   const parts = shortcutStr.split('+').map((p) => p.trim().toLowerCase());
   const needCtrl = parts.includes('ctrl') || parts.includes('control');
-  const needAlt = parts.includes('alt');
+  const needAlt = parts.includes('alt') || parts.includes('option');
   const needShift = parts.includes('shift');
-  const needMeta = parts.includes('meta') || parts.includes('cmd');
+  const needMeta = parts.includes('meta') || parts.includes('cmd') || parts.includes('command');
 
   if (e.ctrlKey !== needCtrl) return false;
   if (e.altKey !== needAlt) return false;
@@ -39,13 +70,17 @@ function matchesShortcut(e: KeyboardEvent, shortcutStr: string): boolean {
   if (e.metaKey !== needMeta) return false;
 
   const keyPart = parts.find(
-    (p) => !['ctrl', 'control', 'alt', 'shift', 'meta', 'cmd'].includes(p)
+    (p) => !['ctrl', 'control', 'alt', 'option', 'shift', 'meta', 'cmd', 'command'].includes(p)
   );
   if (!keyPart) return false;
 
+  const keyLower = e.key.toLowerCase();
+  const codeLower = e.code.toLowerCase();
   return (
-    e.key.toLowerCase() === keyPart.toLowerCase() ||
-    e.code.toLowerCase() === `key${keyPart.toLowerCase()}`
+    keyLower === keyPart ||
+    codeLower === `key${keyPart}` ||
+    codeLower === `digit${keyPart}` ||
+    codeLower === keyPart
   );
 }
 
@@ -57,6 +92,7 @@ export const HudOverlay: React.FC = () => {
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [shortcutStr, setShortcutStr] = useState<string>('Alt+S');
+  const [theme, setTheme] = useState<ThemeMode>('dark');
   const currentBvidRef = useRef<string>('');
 
   const showToast = (msg: string) => {
@@ -64,28 +100,28 @@ export const HudOverlay: React.FC = () => {
     setTimeout(() => setToastMsg(null), 1800);
   };
 
-  // Load custom shortcut from settings
+  // Load custom settings & listen for live changes
   useEffect(() => {
     (async () => {
-      try {
-        const res: ExtensionResponse<UserSettings> = await chrome.runtime.sendMessage({
-          type: 'GET_SETTINGS',
-        });
-        if (res.success && res.data?.shortcutToggle) {
-          setShortcutStr(res.data.shortcutToggle);
-        }
-      } catch (e) {
-        console.error('Failed to load settings in HUD:', e);
+      const res = await safeSendMessage<UserSettings>({ type: 'GET_SETTINGS' });
+      if (res.success && res.data) {
+        if (res.data.shortcutToggle) setShortcutStr(res.data.shortcutToggle);
+        if (res.data.theme) setTheme(res.data.theme);
       }
     })();
 
     const handleStorageChange = (changes: any) => {
-      if (changes.user_settings?.newValue?.shortcutToggle) {
-        setShortcutStr(changes.user_settings.newValue.shortcutToggle);
+      if (changes.user_settings?.newValue) {
+        const val: UserSettings = changes.user_settings.newValue;
+        if (val.shortcutToggle) setShortcutStr(val.shortcutToggle);
+        if (val.theme) setTheme(val.theme);
       }
     };
-    chrome.storage.onChanged.addListener(handleStorageChange);
-    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+
+    if (chrome.storage?.onChanged) {
+      chrome.storage.onChanged.addListener(handleStorageChange);
+      return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    }
   }, []);
 
   // Fetch or generate summary for current video
@@ -123,11 +159,10 @@ export const HudOverlay: React.FC = () => {
 
       // Check cache first if not forced
       if (!forceRefresh) {
-        const cachedRes: ExtensionResponse<VideoSummaryResult | null> =
-          await chrome.runtime.sendMessage({
-            type: 'GET_CACHED_SUMMARY',
-            payload: { bvid: meta.bvid, cid },
-          });
+        const cachedRes = await safeSendMessage<VideoSummaryResult | null>({
+          type: 'GET_CACHED_SUMMARY',
+          payload: { bvid: meta.bvid, cid },
+        });
 
         if (cachedRes.success && cachedRes.data) {
           setSummary(cachedRes.data);
@@ -137,27 +172,25 @@ export const HudOverlay: React.FC = () => {
       }
 
       // 1. Fetch subtitles via background
-      const subRes: ExtensionResponse<BiliRawSubtitleItem[]> =
-        await chrome.runtime.sendMessage({
-          type: 'FETCH_SUBTITLES',
-          payload: { bvid: meta.bvid, cid, aid },
-        });
+      const subRes = await safeSendMessage<BiliRawSubtitleItem[]>({
+        type: 'FETCH_SUBTITLES',
+        payload: { bvid: meta.bvid, cid, aid },
+      });
 
       if (!subRes.success || !subRes.data) {
         throw new Error(subRes.error || '获取字幕失败，该视频可能没有字幕。');
       }
 
       // 2. Generate summary via LLM
-      const sumRes: ExtensionResponse<VideoSummaryResult> =
-        await chrome.runtime.sendMessage({
-          type: 'GENERATE_SUMMARY',
-          payload: {
-            bvid: meta.bvid,
-            cid,
-            title,
-            subtitles: subRes.data,
-          },
-        });
+      const sumRes = await safeSendMessage<VideoSummaryResult>({
+        type: 'GENERATE_SUMMARY',
+        payload: {
+          bvid: meta.bvid,
+          cid,
+          title,
+          subtitles: subRes.data,
+        },
+      });
 
       if (!sumRes.success || !sumRes.data) {
         throw new Error(sumRes.error || '生成总结失败，请检查 API Key 配置。');
@@ -205,10 +238,9 @@ export const HudOverlay: React.FC = () => {
   // Global Keyboard Navigation
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore key events when user is typing in comments/search
       if (isUserTyping()) return;
 
-      // Toggle HUD with user custom shortcut
+      // Toggle HUD with user-defined shortcut
       if (matchesShortcut(e, shortcutStr)) {
         e.preventDefault();
         setIsOpen((prev) => {
@@ -221,7 +253,6 @@ export const HudOverlay: React.FC = () => {
         return;
       }
 
-      // Active keyboard controls when HUD is open
       if (!isOpen) return;
 
       if (e.key === 'Escape') {
@@ -240,7 +271,7 @@ export const HudOverlay: React.FC = () => {
           return;
         }
 
-        // Navigation via J/K or Up/Down
+        // J/K or Up/Down
         if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') {
           e.preventDefault();
           setSelectedIndex((prev) => {
@@ -289,6 +320,8 @@ export const HudOverlay: React.FC = () => {
     loadSummaryForCurrentVideo,
   ]);
 
+  const isDark = theme !== 'light';
+
   // If HUD is closed, render subtle floating trigger pill
   if (!isOpen) {
     return (
@@ -300,13 +333,23 @@ export const HudOverlay: React.FC = () => {
               loadSummaryForCurrentVideo();
             }
           }}
-          className="group flex items-center gap-2 px-3.5 py-2 bg-slate-900/80 hover:bg-slate-900/95 text-slate-200 border border-slate-700/60 rounded-full shadow-lg backdrop-blur-md transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
+          className={`group flex items-center gap-2 px-3.5 py-2 rounded-full shadow-xl backdrop-blur-md border transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer ${
+            isDark
+              ? 'bg-slate-900/85 hover:bg-slate-900/95 text-slate-200 border-slate-700/60'
+              : 'bg-white/90 hover:bg-white text-slate-800 border-slate-200 shadow-slate-200'
+          }`}
           title={`点击或按 ${shortcutStr} 唤起 BiliFlow`}
           aria-haspopup="dialog"
         >
-          <Sparkles className="w-4 h-4 text-sky-400 group-hover:rotate-12 transition-transform duration-300" />
-          <span className="text-xs font-medium tracking-wide">BiliFlow</span>
-          <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-slate-800 text-slate-400 rounded border border-slate-700">
+          <Sparkles className="w-4 h-4 text-sky-500 group-hover:rotate-12 transition-transform duration-300" />
+          <span className="text-xs font-semibold tracking-wide">BiliFlow</span>
+          <kbd
+            className={`hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono rounded border ${
+              isDark
+                ? 'bg-slate-800 text-slate-300 border-slate-700'
+                : 'bg-slate-100 text-slate-600 border-slate-200'
+            }`}
+          >
             {shortcutStr}
           </kbd>
         </button>
@@ -321,38 +364,56 @@ export const HudOverlay: React.FC = () => {
       aria-label="BiliFlow 极速导航浮层"
       className="fixed top-16 right-6 z-[999999] w-[420px] max-w-[calc(100vw-3rem)] animate-scale-in"
     >
-      <div className="flex flex-col bg-slate-900/92 text-slate-100 border border-slate-700/70 rounded-2xl shadow-2xl backdrop-blur-xl overflow-hidden">
+      <div
+        className={`flex flex-col border rounded-2xl shadow-2xl backdrop-blur-2xl overflow-hidden transition-colors ${
+          isDark
+            ? 'bg-[#0f172a]/95 text-slate-100 border-slate-700/70'
+            : 'bg-white/95 text-slate-800 border-slate-200 shadow-slate-300'
+        }`}
+      >
         {/* Toast Notification Banner */}
         {toastMsg && (
-          <div className="bg-sky-500 text-white text-[11px] font-medium py-1 px-3 flex items-center justify-center gap-1.5 animate-fade-in shadow-inner">
+          <div className="bg-sky-500 text-white text-[11px] font-semibold py-1 px-3 flex items-center justify-center gap-1.5 animate-fade-in shadow-inner">
             <CheckCircle2 className="w-3.5 h-3.5" />
             <span className="truncate">{toastMsg}</span>
           </div>
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/40">
+        <div
+          className={`flex items-center justify-between px-4 py-3 border-b ${
+            isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-100 bg-slate-50/60'
+          }`}
+        >
           <div className="flex items-center gap-2">
-            <div className="p-1 rounded-lg bg-sky-500/10 text-sky-400">
-              <Zap className="w-4 h-4" />
+            <div className="p-1.5 rounded-xl bg-sky-500/15 text-sky-500">
+              <Zap className="w-4 h-4 fill-current" />
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-sm font-semibold tracking-tight text-white">
+                <span
+                  className={`text-sm font-bold tracking-tight ${
+                    isDark ? 'text-white' : 'text-slate-900'
+                  }`}
+                >
                   BiliFlow
                 </span>
-                <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 font-medium">
+                <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500 font-bold">
                   HUD
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1">
             <button
               onClick={() => loadSummaryForCurrentVideo(true)}
               disabled={loading}
-              className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isDark
+                  ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+              }`}
               title="重新生成总结"
               aria-label="重新生成总结"
             >
@@ -360,7 +421,11 @@ export const HudOverlay: React.FC = () => {
             </button>
             <button
               onClick={() => setIsOpen(false)}
-              className="p-1.5 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isDark
+                  ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+              }`}
               title="关闭 (Esc)"
               aria-label="关闭浮层"
             >
@@ -373,31 +438,46 @@ export const HudOverlay: React.FC = () => {
         <div className="p-4 max-h-[70vh] overflow-y-auto space-y-3.5">
           {loading && (
             <div className="py-10 flex flex-col items-center justify-center gap-3 text-slate-400">
-              <Loader2 className="w-7 h-7 animate-spin text-sky-400" />
+              <Loader2 className="w-7 h-7 animate-spin text-sky-500" />
               <p className="text-xs font-medium tracking-wide">
-                正在静默解析字幕并提炼核心亮点...
+                正在智能提炼视频核心亮点...
               </p>
             </div>
           )}
 
           {error && !loading && (
-            <div className="p-3.5 rounded-xl bg-rose-950/40 border border-rose-800/50 text-rose-200 flex items-start gap-2.5">
-              <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
-              <div className="text-xs space-y-1">
-                <p className="font-medium text-rose-300">获取失败</p>
-                <p className="text-rose-200/90 leading-relaxed">{error}</p>
-                <button
-                  onClick={() => {
-                    if (chrome.runtime.openOptionsPage) {
-                      chrome.runtime.openOptionsPage();
-                    } else {
-                      window.open(chrome.runtime.getURL('options.html'));
-                    }
-                  }}
-                  className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 underline cursor-pointer"
-                >
-                  <Settings className="w-3 h-3" /> 前往设置中心配置厂商与 API Key
-                </button>
+            <div
+              className={`p-3.5 rounded-xl border flex items-start gap-2.5 ${
+                isDark
+                  ? 'bg-rose-950/40 border-rose-800/50 text-rose-200'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+              }`}
+            >
+              <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+              <div className="text-xs space-y-1.5 min-w-0">
+                <p className="font-semibold text-rose-500">获取失败</p>
+                <p className="opacity-90 leading-relaxed break-all">{error}</p>
+                {error.includes('刷新') ? (
+                  <button
+                    onClick={() => window.location.reload()}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500 text-white text-[11px] font-semibold transition-all hover:bg-sky-400 cursor-pointer mt-1"
+                  >
+                    <RotateCcw className="w-3 h-3" /> 立即按 F5 刷新网页
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (chrome.runtime?.openOptionsPage) {
+                        chrome.runtime.openOptionsPage();
+                      } else {
+                        window.open(chrome.runtime.getURL('options.html'));
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 text-[11px] text-sky-500 hover:underline cursor-pointer pt-0.5"
+                  >
+                    <Settings className="w-3 h-3" /> 前往设置中心配置厂商与 API Key
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -406,8 +486,14 @@ export const HudOverlay: React.FC = () => {
             <>
               {/* One Sentence Summary Card */}
               {summary.oneSentenceSummary && (
-                <div className="p-3 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-200 text-xs leading-relaxed">
-                  <span className="font-semibold text-sky-400 mr-1.5">⚡ 全片核心:</span>
+                <div
+                  className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                    isDark
+                      ? 'bg-slate-800/50 border-slate-700/50 text-slate-200'
+                      : 'bg-slate-50 border-slate-200 text-slate-700'
+                  }`}
+                >
+                  <span className="font-bold text-sky-500 mr-1.5">⚡ 全片核心:</span>
                   {summary.oneSentenceSummary}
                 </div>
               )}
@@ -435,16 +521,22 @@ export const HudOverlay: React.FC = () => {
                         }}
                         className={`group relative p-2.5 rounded-xl border transition-all duration-150 cursor-pointer flex items-start gap-2.5 ${
                           isSelected
-                            ? 'bg-sky-950/40 border-sky-500/50 shadow-sm'
-                            : 'bg-slate-800/40 border-slate-700/30 hover:bg-slate-800/80 hover:border-slate-600/60'
+                            ? isDark
+                              ? 'bg-sky-950/40 border-sky-500/50 shadow-sm'
+                              : 'bg-sky-50 border-sky-400/80 shadow-sm'
+                            : isDark
+                            ? 'bg-slate-800/40 border-slate-700/30 hover:bg-slate-800/80 hover:border-slate-600/60'
+                            : 'bg-slate-50/60 border-slate-200/80 hover:bg-slate-100 hover:border-slate-300'
                         }`}
                       >
                         {/* Number Key Badge */}
                         <div
-                          className={`w-5 h-5 rounded-md flex items-center justify-center font-mono text-xs font-semibold shrink-0 mt-0.5 ${
+                          className={`w-5 h-5 rounded-md flex items-center justify-center font-mono text-xs font-bold shrink-0 mt-0.5 ${
                             isSelected
                               ? 'bg-sky-500 text-white'
-                              : 'bg-slate-700/60 text-slate-300 group-hover:bg-slate-600'
+                              : isDark
+                              ? 'bg-slate-700/60 text-slate-300 group-hover:bg-slate-600'
+                              : 'bg-slate-200 text-slate-700 group-hover:bg-slate-300'
                           }`}
                         >
                           {idx + 1}
@@ -453,16 +545,30 @@ export const HudOverlay: React.FC = () => {
                         {/* Text details */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className="font-medium text-xs text-white truncate">
+                            <span
+                              className={`font-semibold text-xs truncate ${
+                                isDark ? 'text-white' : 'text-slate-900'
+                              }`}
+                            >
                               {item.title}
                             </span>
-                            <span className="inline-flex items-center gap-1 font-mono text-[10px] text-sky-300 bg-sky-950/60 px-1.5 py-0.2 rounded border border-sky-800/40">
+                            <span
+                              className={`inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.2 rounded border ${
+                                isDark
+                                  ? 'text-sky-300 bg-sky-950/60 border-sky-800/40'
+                                  : 'text-sky-700 bg-sky-50 border-sky-200'
+                              }`}
+                            >
                               <Clock className="w-2.5 h-2.5" />
                               {item.timestampStr}
                             </span>
                           </div>
                           {item.keyPoint && (
-                            <p className="text-[11px] text-slate-300 mt-1 leading-snug">
+                            <p
+                              className={`text-[11px] mt-1 leading-snug ${
+                                isDark ? 'text-slate-300' : 'text-slate-600'
+                              }`}
+                            >
                               {item.keyPoint}
                             </p>
                           )}
@@ -471,8 +577,8 @@ export const HudOverlay: React.FC = () => {
                         <ChevronRight
                           className={`w-4 h-4 self-center transition-transform ${
                             isSelected
-                              ? 'text-sky-400 translate-x-0.5'
-                              : 'text-slate-500 opacity-0 group-hover:opacity-100'
+                              ? 'text-sky-500 translate-x-0.5'
+                              : 'text-slate-400 opacity-0 group-hover:opacity-100'
                           }`}
                         />
                       </div>
@@ -481,18 +587,22 @@ export const HudOverlay: React.FC = () => {
                 </div>
               </div>
 
-              {/* Follow up questions (if available) */}
+              {/* Follow up questions */}
               {summary.followUpQuestions && summary.followUpQuestions.length > 0 && (
                 <div className="pt-1 space-y-1.5">
                   <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
-                    <HelpCircle className="w-3 h-3 text-sky-400" />
+                    <HelpCircle className="w-3 h-3 text-sky-500" />
                     <span>延伸思考</span>
                   </div>
                   <div className="space-y-1">
                     {summary.followUpQuestions.map((q, qIdx) => (
                       <div
                         key={qIdx}
-                        className="text-[11px] text-slate-300 bg-slate-800/30 hover:bg-slate-800/60 border border-slate-700/30 rounded-lg px-2.5 py-1.5 transition-colors"
+                        className={`text-[11px] rounded-lg px-2.5 py-1.5 transition-colors border ${
+                          isDark
+                            ? 'text-slate-300 bg-slate-800/30 hover:bg-slate-800/60 border-slate-700/30'
+                            : 'text-slate-700 bg-slate-50 hover:bg-slate-100 border-slate-200'
+                        }`}
                       >
                         {q}
                       </div>
@@ -505,16 +615,30 @@ export const HudOverlay: React.FC = () => {
         </div>
 
         {/* Footer Shortcuts Matrix */}
-        <div className="px-4 py-2.5 bg-slate-950/70 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-slate-400">
+        <div
+          className={`px-4 py-2.5 border-t flex items-center justify-between text-[10px] font-mono ${
+            isDark
+              ? 'bg-slate-950/70 border-slate-800 text-slate-400'
+              : 'bg-slate-50 border-slate-100 text-slate-500'
+          }`}
+        >
           <div className="flex items-center gap-2">
             <span>
-              <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
+              <kbd
+                className={`px-1 py-0.5 rounded border ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                }`}
+              >
                 1~{summary?.highlights.length || 5}
               </kbd>{' '}
               直达
             </span>
             <span>
-              <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
+              <kbd
+                className={`px-1 py-0.5 rounded border ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                }`}
+              >
                 J/K
               </kbd>{' '}
               选择
@@ -522,13 +646,21 @@ export const HudOverlay: React.FC = () => {
           </div>
           <div className="flex items-center gap-2">
             <span>
-              <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
+              <kbd
+                className={`px-1 py-0.5 rounded border ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                }`}
+              >
                 {shortcutStr}
               </kbd>{' '}
               显隐
             </span>
             <span>
-              <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
+              <kbd
+                className={`px-1 py-0.5 rounded border ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                }`}
+              >
                 Esc
               </kbd>{' '}
               退出

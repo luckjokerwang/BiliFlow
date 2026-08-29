@@ -29,6 +29,17 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
     icon: '🌊',
   },
   {
+    id: 'sensenova',
+    name: 'SenseNova (商汤日日新)',
+    baseUrl: 'https://token.sensenova.cn/v1',
+    apiKey: '',
+    enabled: true,
+    models: ['SenseChat-5', 'SenseChat-5-Cantonese', 'SenseChat-Turbo'],
+    selectedModel: 'SenseChat-5',
+    docUrl: 'https://platform.sensenova.cn/',
+    icon: '🔮',
+  },
+  {
     id: 'gemini',
     name: 'Google Gemini',
     baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
@@ -107,4 +118,5 @@ export const DEFAULT_SETTINGS: UserSettings = {
   activeModel: 'deepseek-chat',
   autoFetch: true,
   shortcutToggle: 'Alt+S',
+  theme: 'dark',
 };

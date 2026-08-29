@@ -27,7 +27,7 @@ const SYSTEM_PROMPT = `
 3. 语言保持客观、干练、直击要害。
 `.trim();
 
-function formatBaseUrl(rawUrl: string, path: string): string {
+export function formatBaseUrl(rawUrl: string, path: string): string {
   let clean = (rawUrl || '').trim().replace(/\/+$/, '');
   if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
     throw new Error(`API 接口地址格式错误: "${rawUrl || '(空)'}"。必须以 https:// 或 http:// 开头`);
@@ -65,7 +65,7 @@ export async function fetchRemoteModels(config: {
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
     if (response.status === 401) {
-      throw new Error('API Key 无效或未授权 (401 Unauthorized)，请检查 Key 是否填写正确。');
+      throw new Error('API Key 无效或未授权 (401 Unauthorized)，请检查 Key 是否正确。');
     }
     throw new Error(`获取模型列表失败 (HTTP ${response.status}): ${errText || response.statusText}`);
   }
@@ -74,11 +74,11 @@ export async function fetchRemoteModels(config: {
   const rawList = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
 
   const modelIds = rawList
-    .map((item: any) => (typeof item === 'string' ? item : item.id))
+    .map((item: any) => (typeof item === 'string' ? item : item?.id || item?.name))
     .filter((id: any) => typeof id === 'string' && id.trim().length > 0);
 
   if (modelIds.length === 0) {
-    throw new Error('远程返回的模型列表为空。');
+    throw new Error('远程接口已连通，但返回的模型列表为空。');
   }
 
   return modelIds.sort();
@@ -100,6 +100,8 @@ export async function testProviderConnection(config: {
   const startTime = performance.now();
   try {
     const endpoint = formatBaseUrl(baseUrl, 'chat/completions');
+    const targetModel = model || 'deepseek-chat';
+
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {
@@ -107,7 +109,7 @@ export async function testProviderConnection(config: {
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({
-        model: model || 'deepseek-chat',
+        model: targetModel,
         messages: [{ role: 'user', content: 'hi' }],
         max_tokens: 2,
       }),
@@ -123,9 +125,9 @@ export async function testProviderConnection(config: {
         const errJson = JSON.parse(errText);
         if (errJson?.error?.message) {
           if (response.status === 402 || errJson.error.message.toLowerCase().includes('insufficient balance')) {
-            friendlyMsg = '账户余额不足 (Insufficient Balance)，请前往服务商充值或更换 Key。';
+            friendlyMsg = '账户余额不足 (Insufficient Balance)，请前往服务商充值。';
           } else if (response.status === 401) {
-            friendlyMsg = 'API Key 无效 (401 Unauthorized)，请检查 Key 是否正确。';
+            friendlyMsg = 'API Key 无效 (401 Unauthorized)，请检查 Key 是否填写正确。';
           } else {
             friendlyMsg = `错误: ${errJson.error.message}`;
           }
@@ -145,7 +147,7 @@ export async function testProviderConnection(config: {
     return {
       success: false,
       latencyMs,
-      error: err?.message || '网络连接超时或无法访问该地址',
+      error: err?.message || '网络连接超时或无法访问该地址 (Failed to fetch)',
     };
   }
 }
@@ -164,7 +166,7 @@ export async function generateVideoSummary(params: {
   const { bvid, cid, title, subtitles, provider, model } = params;
 
   if (!provider.apiKey) {
-    throw new Error(`厂商【${provider.name}】未配置 API Key，请点击浏览器插件图标打开设置中心填入 Key。`);
+    throw new Error(`厂商【${provider.name}】未配置 API Key，请打开设置中心填入 Key。`);
   }
 
   const chunks = chunkSubtitles(subtitles, { maxDurationSeconds: 25, maxCharCount: 200 });
@@ -202,7 +204,7 @@ ${formattedTranscript}
       const errJson = JSON.parse(errorBody);
       if (errJson?.error?.message) {
         if (response.status === 402 || errJson.error.message.toLowerCase().includes('insufficient balance')) {
-          throw new Error('账户余额不足 (Insufficient Balance)，请前往服务商平台充值，或在插件设置中切换其他服务商（如 SiliconFlow 赠送额度或 Gemini 免费层）。');
+          throw new Error('账户余额不足 (Insufficient Balance)，请前往服务商平台充值，或在插件设置中切换其他服务商。');
         }
         if (response.status === 401) {
           throw new Error('API Key 无效或未授权 (401 Unauthorized)，请检查输入的 Key 是否正确。');
