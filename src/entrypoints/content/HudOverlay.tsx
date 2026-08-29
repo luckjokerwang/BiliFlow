@@ -10,18 +10,44 @@ import {
   RefreshCw,
   HelpCircle,
   CheckCircle2,
+  Settings,
 } from 'lucide-react';
 import {
   ExtensionResponse,
   HighlightItem,
   VideoSummaryResult,
   BiliRawSubtitleItem,
+  UserSettings,
 } from '../../types';
 import {
   extractVideoMeta,
   isUserTyping,
   seekToSeconds,
 } from '../../utils/playerController';
+
+function matchesShortcut(e: KeyboardEvent, shortcutStr: string): boolean {
+  if (!shortcutStr) return e.altKey && (e.key === 's' || e.key === 'S');
+  const parts = shortcutStr.split('+').map((p) => p.trim().toLowerCase());
+  const needCtrl = parts.includes('ctrl') || parts.includes('control');
+  const needAlt = parts.includes('alt');
+  const needShift = parts.includes('shift');
+  const needMeta = parts.includes('meta') || parts.includes('cmd');
+
+  if (e.ctrlKey !== needCtrl) return false;
+  if (e.altKey !== needAlt) return false;
+  if (e.shiftKey !== needShift) return false;
+  if (e.metaKey !== needMeta) return false;
+
+  const keyPart = parts.find(
+    (p) => !['ctrl', 'control', 'alt', 'shift', 'meta', 'cmd'].includes(p)
+  );
+  if (!keyPart) return false;
+
+  return (
+    e.key.toLowerCase() === keyPart.toLowerCase() ||
+    e.code.toLowerCase() === `key${keyPart.toLowerCase()}`
+  );
+}
 
 export const HudOverlay: React.FC = () => {
   const [isOpen, setIsOpen] = useState<boolean>(false);
@@ -30,12 +56,37 @@ export const HudOverlay: React.FC = () => {
   const [summary, setSummary] = useState<VideoSummaryResult | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [shortcutStr, setShortcutStr] = useState<string>('Alt+S');
   const currentBvidRef = useRef<string>('');
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 1800);
   };
+
+  // Load custom shortcut from settings
+  useEffect(() => {
+    (async () => {
+      try {
+        const res: ExtensionResponse<UserSettings> = await chrome.runtime.sendMessage({
+          type: 'GET_SETTINGS',
+        });
+        if (res.success && res.data?.shortcutToggle) {
+          setShortcutStr(res.data.shortcutToggle);
+        }
+      } catch (e) {
+        console.error('Failed to load settings in HUD:', e);
+      }
+    })();
+
+    const handleStorageChange = (changes: any) => {
+      if (changes.user_settings?.newValue?.shortcutToggle) {
+        setShortcutStr(changes.user_settings.newValue.shortcutToggle);
+      }
+    };
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+  }, []);
 
   // Fetch or generate summary for current video
   const loadSummaryForCurrentVideo = useCallback(async (forceRefresh = false) => {
@@ -55,7 +106,6 @@ export const HudOverlay: React.FC = () => {
 
     try {
       if (!cid) {
-        // Fallback: Query Bilibili web-interface API to resolve cid
         const infoRes = await fetch(
           `https://api.bilibili.com/x/web-interface/view?bvid=${meta.bvid}`
         );
@@ -158,8 +208,8 @@ export const HudOverlay: React.FC = () => {
       // Ignore key events when user is typing in comments/search
       if (isUserTyping()) return;
 
-      // Toggle HUD with Alt+S (or Option+S on Mac)
-      if (e.altKey && (e.key === 's' || e.key === 'S' || e.code === 'KeyS')) {
+      // Toggle HUD with user custom shortcut
+      if (matchesShortcut(e, shortcutStr)) {
         e.preventDefault();
         setIsOpen((prev) => {
           const next = !prev;
@@ -229,7 +279,15 @@ export const HudOverlay: React.FC = () => {
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [isOpen, summary, loading, selectedIndex, handleJump, loadSummaryForCurrentVideo]);
+  }, [
+    isOpen,
+    summary,
+    loading,
+    selectedIndex,
+    shortcutStr,
+    handleJump,
+    loadSummaryForCurrentVideo,
+  ]);
 
   // If HUD is closed, render subtle floating trigger pill
   if (!isOpen) {
@@ -243,13 +301,13 @@ export const HudOverlay: React.FC = () => {
             }
           }}
           className="group flex items-center gap-2 px-3.5 py-2 bg-slate-900/80 hover:bg-slate-900/95 text-slate-200 border border-slate-700/60 rounded-full shadow-lg backdrop-blur-md transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer"
-          title="点击或按 Alt+S 唤起 BiliFlow"
+          title={`点击或按 ${shortcutStr} 唤起 BiliFlow`}
           aria-haspopup="dialog"
         >
           <Sparkles className="w-4 h-4 text-sky-400 group-hover:rotate-12 transition-transform duration-300" />
           <span className="text-xs font-medium tracking-wide">BiliFlow</span>
           <kbd className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono bg-slate-800 text-slate-400 rounded border border-slate-700">
-            Alt+S
+            {shortcutStr}
           </kbd>
         </button>
       </div>
@@ -328,11 +386,18 @@ export const HudOverlay: React.FC = () => {
               <div className="text-xs space-y-1">
                 <p className="font-medium text-rose-300">获取失败</p>
                 <p className="text-rose-200/90 leading-relaxed">{error}</p>
-                {error.includes('API Key') && (
-                  <p className="text-slate-400 pt-1">
-                    提示：请点击浏览器右上角插件图标配置您的 API Key。
-                  </p>
-                )}
+                <button
+                  onClick={() => {
+                    if (chrome.runtime.openOptionsPage) {
+                      chrome.runtime.openOptionsPage();
+                    } else {
+                      window.open(chrome.runtime.getURL('options.html'));
+                    }
+                  }}
+                  className="mt-1 inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 underline cursor-pointer"
+                >
+                  <Settings className="w-3 h-3" /> 前往设置中心配置厂商与 API Key
+                </button>
               </div>
             </div>
           )}
@@ -458,7 +523,7 @@ export const HudOverlay: React.FC = () => {
           <div className="flex items-center gap-2">
             <span>
               <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
-                Alt+S
+                {shortcutStr}
               </kbd>{' '}
               显隐
             </span>

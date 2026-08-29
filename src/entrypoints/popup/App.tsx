@@ -1,95 +1,29 @@
 import React, { useEffect, useState } from 'react';
 import {
   Zap,
-  Key,
-  Globe,
   Cpu,
-  Check,
+  Settings,
+  CheckCircle2,
+  AlertCircle,
   ExternalLink,
-  Eye,
-  EyeOff,
   Keyboard,
-  Info,
 } from 'lucide-react';
-import { LLMConfig, UserSettings, ExtensionResponse } from '../../types';
-
-interface Preset {
-  name: string;
-  provider: 'deepseek' | 'gemini' | 'openai' | 'custom';
-  baseUrl: string;
-  model: string;
-  docUrl: string;
-}
-
-const PRESETS: Preset[] = [
-  {
-    name: 'DeepSeek (官方)',
-    provider: 'deepseek',
-    baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
-    docUrl: 'https://platform.deepseek.com/api_keys',
-  },
-  {
-    name: 'SiliconFlow (硅基流动)',
-    provider: 'custom',
-    baseUrl: 'https://api.siliconflow.cn/v1',
-    model: 'deepseek-ai/DeepSeek-V3',
-    docUrl: 'https://cloud.siliconflow.cn/account/ak',
-  },
-  {
-    name: 'Google Gemini',
-    provider: 'gemini',
-    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
-    model: 'gemini-2.5-flash',
-    docUrl: 'https://aistudio.google.com/app/apikey',
-  },
-  {
-    name: 'OpenAI (官方)',
-    provider: 'openai',
-    baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o-mini',
-    docUrl: 'https://platform.openai.com/api-keys',
-  },
-  {
-    name: '自定义 (Custom)',
-    provider: 'custom',
-    baseUrl: '',
-    model: '',
-    docUrl: '',
-  },
-];
+import { UserSettings, ExtensionResponse } from '../../types';
+import { DEFAULT_SETTINGS } from '../background';
 
 export const App: React.FC = () => {
-  const [config, setConfig] = useState<LLMConfig>({
-    provider: 'deepseek',
-    apiKey: '',
-    baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
-  });
-  const [selectedPresetIndex, setSelectedPresetIndex] = useState<number>(0);
-  const [showApiKey, setShowApiKey] = useState<boolean>(false);
-  const [saved, setSaved] = useState<boolean>(false);
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Load existing settings
+  // Load current settings
   useEffect(() => {
     (async () => {
       try {
         const res: ExtensionResponse<UserSettings> = await chrome.runtime.sendMessage({
           type: 'GET_SETTINGS',
         });
-        if (res.success && res.data?.llmConfig) {
-          const loaded = res.data.llmConfig;
-          setConfig(loaded);
-
-          const presetIdx = PRESETS.findIndex(
-            (p) => p.baseUrl === loaded.baseUrl && p.model === loaded.model
-          );
-          if (presetIdx !== -1) {
-            setSelectedPresetIndex(presetIdx);
-          } else {
-            setSelectedPresetIndex(PRESETS.length - 1); // Custom
-          }
+        if (res.success && res.data) {
+          setSettings(res.data);
         }
       } catch (e) {
         console.error('Failed to load settings:', e);
@@ -99,184 +33,152 @@ export const App: React.FC = () => {
     })();
   }, []);
 
-  const handleSelectPreset = (idx: number) => {
-    setSelectedPresetIndex(idx);
-    const preset = PRESETS[idx];
-    if (preset.baseUrl || preset.model) {
-      setConfig((prev) => ({
-        ...prev,
-        provider: preset.provider,
-        baseUrl: preset.baseUrl,
-        model: preset.model,
-      }));
+  const openOptionsPage = () => {
+    if (chrome.runtime.openOptionsPage) {
+      chrome.runtime.openOptionsPage();
+    } else {
+      window.open(chrome.runtime.getURL('options.html'));
     }
   };
 
-  const handleSave = async () => {
-    try {
-      await chrome.runtime.sendMessage({
-        type: 'SAVE_SETTINGS',
-        payload: { llmConfig: config },
-      });
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (e) {
-      console.error('Failed to save settings:', e);
-    }
+  const activeProvider =
+    settings.providers.find((p) => p.id === settings.activeProviderId) ||
+    settings.providers[0];
+
+  const handleSwitchProvider = async (providerId: string) => {
+    const target = settings.providers.find((p) => p.id === providerId);
+    if (!target) return;
+
+    const nextModel = target.selectedModel || target.models[0] || '';
+    const updated: UserSettings = {
+      ...settings,
+      activeProviderId: providerId,
+      activeModel: nextModel,
+    };
+    setSettings(updated);
+
+    await chrome.runtime.sendMessage({
+      type: 'SAVE_SETTINGS',
+      payload: updated,
+    });
   };
 
-  const currentPreset = PRESETS[selectedPresetIndex];
+  const handleSwitchModel = async (model: string) => {
+    const updated: UserSettings = {
+      ...settings,
+      activeModel: model,
+      providers: settings.providers.map((p) =>
+        p.id === activeProvider.id ? { ...p, selectedModel: model } : p
+      ),
+    };
+    setSettings(updated);
+
+    await chrome.runtime.sendMessage({
+      type: 'SAVE_SETTINGS',
+      payload: updated,
+    });
+  };
 
   if (loading) {
-    return <div className="p-6 text-center text-xs text-slate-400">加载配置中...</div>;
+    return <div className="p-5 text-center text-xs text-slate-400">加载配置中...</div>;
   }
 
+  const isConfigured = Boolean(activeProvider?.apiKey);
+
   return (
-    <div className="p-4 space-y-4 text-slate-200">
+    <div className="p-4 space-y-3.5 text-slate-200 w-[340px] bg-slate-900 select-none">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-sky-500/10 text-sky-400">
-            <Zap className="w-4 h-4" />
+          <div className="p-1.5 rounded-xl bg-gradient-to-tr from-sky-600 to-cyan-400 text-white shadow-md shadow-sky-500/20">
+            <Zap className="w-4 h-4 fill-current" />
           </div>
           <div>
-            <h1 className="text-sm font-semibold text-white">BiliFlow 设置</h1>
-            <p className="text-[10px] text-slate-400">极速心流 · B站视频总结与导航</p>
+            <h1 className="text-sm font-bold text-white flex items-center gap-1.5">
+              BiliFlow
+              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-sky-500/20 text-sky-300 font-normal">
+                v0.1.0
+              </span>
+            </h1>
+            <p className="text-[10px] text-slate-400">极速心流 · B站视频提炼</p>
           </div>
         </div>
-        <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">
-          v0.1.0
-        </span>
+
+        <button
+          onClick={openOptionsPage}
+          className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+          title="打开完整设置面板"
+        >
+          <Settings className="w-4 h-4" />
+        </button>
       </div>
 
-      {/* Preset Selection */}
+      {/* Provider Quick Switcher */}
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-slate-300">选择服务商 / 预设</label>
+        <label className="text-xs font-medium text-slate-300 flex items-center justify-between">
+          <span>当前活跃服务商</span>
+          {isConfigured ? (
+            <span className="inline-flex items-center gap-1 text-[10px] text-emerald-400">
+              <CheckCircle2 className="w-3 h-3" /> Key 已就绪
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-[10px] text-amber-400">
+              <AlertCircle className="w-3 h-3" /> 待填 Key
+            </span>
+          )}
+        </label>
         <select
-          value={selectedPresetIndex}
-          onChange={(e) => handleSelectPreset(Number(e.target.value))}
-          className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:border-sky-500 transition-colors"
+          value={settings.activeProviderId}
+          onChange={(e) => handleSwitchProvider(e.target.value)}
+          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white focus:outline-none focus:border-sky-500 transition-colors"
         >
-          {PRESETS.map((p, idx) => (
-            <option key={idx} value={idx}>
-              {p.name}
+          {settings.providers.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.icon || '⚡'} {p.name}
             </option>
           ))}
         </select>
       </div>
 
-      {/* API Key */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-            <Key className="w-3.5 h-3.5 text-sky-400" />
-            API Key
-          </label>
-          {currentPreset.docUrl && (
-            <a
-              href={currentPreset.docUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-[10px] text-sky-400 hover:text-sky-300 flex items-center gap-0.5"
-            >
-              获取 Key <ExternalLink className="w-2.5 h-2.5" />
-            </a>
-          )}
-        </div>
-        <div className="relative">
-          <input
-            type={showApiKey ? 'text' : 'password'}
-            value={config.apiKey}
-            onChange={(e) => setConfig({ ...config, apiKey: e.target.value.trim() })}
-            placeholder="sk-..."
-            className="w-full px-3 py-2 pr-9 bg-slate-800/80 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-sky-500 transition-colors"
-          />
-          <button
-            type="button"
-            onClick={() => setShowApiKey(!showApiKey)}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
-          >
-            {showApiKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-          </button>
-        </div>
-      </div>
-
-      {/* Base URL */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-          <Globe className="w-3.5 h-3.5 text-sky-400" />
-          API 接口地址 (Base URL)
-        </label>
-        <input
-          type="text"
-          value={config.baseUrl}
-          onChange={(e) => setConfig({ ...config, baseUrl: e.target.value.trim() })}
-          placeholder="https://api.deepseek.com/v1"
-          className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-sky-500 transition-colors"
-        />
-      </div>
-
-      {/* Model Name */}
+      {/* Model Quick Switcher */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
           <Cpu className="w-3.5 h-3.5 text-sky-400" />
-          模型名称 (Model)
+          <span>提炼所用模型</span>
         </label>
-        <input
-          type="text"
-          value={config.model}
-          onChange={(e) => setConfig({ ...config, model: e.target.value.trim() })}
-          placeholder="deepseek-chat"
-          className="w-full px-3 py-2 bg-slate-800/80 border border-slate-700 rounded-lg text-xs text-white placeholder-slate-500 font-mono focus:outline-none focus:border-sky-500 transition-colors"
-        />
+        <select
+          value={settings.activeModel || activeProvider.selectedModel}
+          onChange={(e) => handleSwitchModel(e.target.value)}
+          className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-xs text-white font-mono focus:outline-none focus:border-sky-500 transition-colors"
+        >
+          {activeProvider.models?.map((m) => (
+            <option key={m} value={m}>
+              {m}
+            </option>
+          ))}
+        </select>
       </div>
 
-      {/* Save Button */}
+      {/* Big Action: Open Full Options Page */}
       <button
-        onClick={handleSave}
-        className="w-full py-2.5 px-4 bg-sky-500 hover:bg-sky-400 active:bg-sky-600 text-white font-medium rounded-lg text-xs transition-all flex items-center justify-center gap-1.5 shadow-lg shadow-sky-500/20 cursor-pointer"
+        onClick={openOptionsPage}
+        className="w-full py-2.5 px-3.5 bg-gradient-to-r from-sky-600 to-sky-500 hover:from-sky-500 hover:to-sky-400 active:scale-[0.98] text-white font-medium rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-sky-500/20 cursor-pointer"
       >
-        {saved ? (
-          <>
-            <Check className="w-4 h-4 text-white" />
-            <span>配置已保存！</span>
-          </>
-        ) : (
-          <span>保存设置</span>
-        )}
+        <Settings className="w-4 h-4" />
+        <span>打开高级设置 (拉取模型 / 改快捷键)</span>
+        <ExternalLink className="w-3 h-3" />
       </button>
 
-      {/* Shortcuts Card */}
-      <div className="p-3 bg-slate-800/40 border border-slate-700/50 rounded-xl space-y-2 text-[11px]">
-        <div className="flex items-center gap-1.5 font-medium text-slate-300">
-          <Keyboard className="w-3.5 h-3.5 text-sky-400" />
-          <span>常用键盘流快捷键</span>
+      {/* Shortcut Quick Cheatsheet */}
+      <div className="p-2.5 bg-slate-800/40 border border-slate-700/50 rounded-xl space-y-1.5 text-[10px] font-mono text-slate-400">
+        <div className="flex items-center justify-between">
+          <span>呼出/隐藏 HUD:</span>
+          <kbd className="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-sky-300 font-bold">
+            {settings.shortcutToggle || 'Alt+S'}
+          </kbd>
         </div>
-        <div className="grid grid-cols-2 gap-1.5 font-mono text-[10px] text-slate-400">
-          <div>
-            <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
-              Alt+S
-            </kbd>{' '}
-            呼出/隐藏 HUD
-          </div>
-          <div>
-            <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
-              1 ~ 9
-            </kbd>{' '}
-            直达对应亮点
-          </div>
-          <div>
-            <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
-              J / K
-            </kbd>{' '}
-            切换上下节点
-          </div>
-          <div>
-            <kbd className="px-1 py-0.5 bg-slate-800 rounded border border-slate-700 text-slate-300">
-              Esc
-            </kbd>{' '}
-            极速退场
-          </div>
+        <div className="flex items-center justify-between">
+          <span>1~9: 直达节点 · J/K: 上下选择 · Esc: 退出</span>
         </div>
       </div>
     </div>

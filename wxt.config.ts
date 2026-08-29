@@ -23,7 +23,13 @@ export default defineConfig({
       'https://api.bilibili.com/*',
       'https://*.deepseek.com/*',
       'https://*.siliconflow.cn/*',
-      'https://generativelanguage.googleapis.com/*'
+      'https://generativelanguage.googleapis.com/*',
+      'https://api.openai.com/*',
+      'https://api.moonshot.cn/*',
+      'https://open.bigmodel.cn/*',
+      'https://openrouter.ai/*',
+      'http://localhost/*',
+      'http://127.0.0.1/*'
     ],
     action: {
       default_title: 'BiliFlow 设置',

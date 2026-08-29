@@ -1,4 +1,4 @@
-import { BiliRawSubtitleItem, LLMConfig, VideoSummaryResult } from '../types';
+import { BiliRawSubtitleItem, ProviderConfig, VideoSummaryResult } from '../types';
 import { chunkSubtitles, formatTranscriptForPrompt } from '../utils/transcriptChunker';
 import { parseLLMSummaryOutput } from '../utils/llmParser';
 
@@ -27,20 +27,127 @@ const SYSTEM_PROMPT = `
 3. 语言保持客观、干练、直击要害。
 `.trim();
 
+function formatBaseUrl(rawUrl: string, path: string): string {
+  let clean = rawUrl.replace(/\/+$/, '');
+  if (!clean.endsWith('/v1') && !clean.endsWith('/v4') && !clean.endsWith('/openai')) {
+    // If user provided root domain e.g. https://api.deepseek.com
+    clean = `${clean}/v1`;
+  }
+  return `${clean}/${path.replace(/^\/+/, '')}`;
+}
+
+/**
+ * Automatically fetch model list from OpenAI-compatible /v1/models endpoint.
+ */
+export async function fetchRemoteModels(config: {
+  baseUrl: string;
+  apiKey: string;
+}): Promise<string[]> {
+  const { baseUrl, apiKey } = config;
+  if (!baseUrl) {
+    throw new Error('请先填写 API 接口地址 (Base URL)');
+  }
+  if (!apiKey) {
+    throw new Error('请先填写 API Key');
+  }
+
+  const endpoint = formatBaseUrl(baseUrl, 'models');
+  const response = await fetch(endpoint, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '');
+    throw new Error(`获取模型列表失败 (HTTP ${response.status}): ${errText || response.statusText}`);
+  }
+
+  const data = await response.json();
+  const rawList = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
+
+  const modelIds = rawList
+    .map((item: any) => (typeof item === 'string' ? item : item.id))
+    .filter((id: any) => typeof id === 'string' && id.trim().length > 0);
+
+  if (modelIds.length === 0) {
+    throw new Error('远程返回的模型列表为空。');
+  }
+
+  // Sort models alphabetically
+  return modelIds.sort();
+}
+
+/**
+ * Test connectivity and measure latency for a provider configuration.
+ */
+export async function testProviderConnection(config: {
+  baseUrl: string;
+  apiKey: string;
+  model?: string;
+}): Promise<{ success: boolean; latencyMs: number; error?: string }> {
+  const { baseUrl, apiKey, model } = config;
+  if (!baseUrl || !apiKey) {
+    return { success: false, latencyMs: 0, error: 'Base URL 与 API Key 不能为空' };
+  }
+
+  const startTime = performance.now();
+  try {
+    const endpoint = formatBaseUrl(baseUrl, 'chat/completions');
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: model || 'deepseek-chat',
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 2,
+      }),
+    });
+
+    const latencyMs = Math.round(performance.now() - startTime);
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      return {
+        success: false,
+        latencyMs,
+        error: `HTTP ${response.status}: ${errText || response.statusText}`,
+      };
+    }
+
+    return { success: true, latencyMs };
+  } catch (err: any) {
+    const latencyMs = Math.round(performance.now() - startTime);
+    return {
+      success: false,
+      latencyMs,
+      error: err?.message || '网络连接超时或无法访问该地址',
+    };
+  }
+}
+
+/**
+ * Generate structured video summary using the active provider configuration.
+ */
 export async function generateVideoSummary(params: {
   bvid: string;
   cid: string;
   title: string;
   subtitles: BiliRawSubtitleItem[];
-  config: LLMConfig;
+  provider: ProviderConfig;
+  model?: string;
 }): Promise<VideoSummaryResult> {
-  const { bvid, cid, title, subtitles, config } = params;
+  const { bvid, cid, title, subtitles, provider, model } = params;
 
-  if (!config.apiKey) {
-    throw new Error('未配置 API Key，请点击插件图标打开设置面板填入 API Key。');
+  if (!provider.apiKey) {
+    throw new Error(`厂商【${provider.name}】未配置 API Key，请打开设置面板填入 Key。`);
   }
 
-  // 1. Chunk and format transcript
   const chunks = chunkSubtitles(subtitles, { maxDurationSeconds: 25, maxCharCount: 200 });
   const formattedTranscript = formatTranscriptForPrompt(chunks);
 
@@ -50,24 +157,17 @@ export async function generateVideoSummary(params: {
 ${formattedTranscript}
 `.trim();
 
-  // 2. Format base URL
-  let endpoint = config.baseUrl.replace(/\/+$/, '');
-  if (!endpoint.endsWith('/v1')) {
-    if (!endpoint.endsWith('/chat/completions')) {
-      endpoint = `${endpoint}/chat/completions`;
-    }
-  } else {
-    endpoint = `${endpoint}/chat/completions`;
-  }
+  const endpoint = formatBaseUrl(provider.baseUrl, 'chat/completions');
+  const targetModel = model || provider.selectedModel || provider.models[0] || 'deepseek-chat';
 
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
+      Authorization: `Bearer ${provider.apiKey}`,
     },
     body: JSON.stringify({
-      model: config.model || 'deepseek-chat',
+      model: targetModel,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },

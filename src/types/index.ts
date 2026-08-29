@@ -51,17 +51,29 @@ export interface VideoSummaryResult {
   createdAt: number;
 }
 
-export interface LLMConfig {
-  provider: 'deepseek' | 'gemini' | 'openai' | 'custom';
-  apiKey: string;
-  baseUrl: string;
-  model: string;
+// ------------------------------------------
+// Multi-Provider & Model Config (Cherry Studio Style)
+// ------------------------------------------
+
+export interface ProviderConfig {
+  id: string;             // e.g. 'deepseek', 'siliconflow', 'custom-uuid'
+  name: string;           // e.g. 'DeepSeek', '硅基流动', 'Google Gemini'
+  baseUrl: string;        // e.g. 'https://api.deepseek.com/v1'
+  apiKey: string;         // e.g. 'sk-...'
+  enabled: boolean;
+  models: string[];       // Available models fetched via API or pre-configured
+  selectedModel: string;  // Currently selected model for this provider
+  isCustom?: boolean;
+  docUrl?: string;
+  icon?: string;
 }
 
 export interface UserSettings {
-  llmConfig: LLMConfig;
+  providers: ProviderConfig[];
+  activeProviderId: string;
+  activeModel: string;
   autoFetch: boolean;
-  shortcutToggle: string;
+  shortcutToggle: string; // e.g. 'Alt+S' or 'Ctrl+Shift+S'
 }
 
 // ------------------------------------------
@@ -92,6 +104,14 @@ export type ExtensionMessage =
   | {
       type: 'SAVE_SETTINGS';
       payload: Partial<UserSettings>;
+    }
+  | {
+      type: 'FETCH_PROVIDER_MODELS';
+      payload: { baseUrl: string; apiKey: string };
+    }
+  | {
+      type: 'TEST_PROVIDER_CONNECTION';
+      payload: { baseUrl: string; apiKey: string; model?: string };
     };
 
 export type ExtensionResponse<T = any> =
