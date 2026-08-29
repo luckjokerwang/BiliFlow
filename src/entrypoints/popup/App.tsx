@@ -9,7 +9,7 @@ import {
   Keyboard,
 } from 'lucide-react';
 import { UserSettings, ExtensionResponse } from '../../types';
-import { DEFAULT_SETTINGS } from '../background';
+import { DEFAULT_SETTINGS } from '../../constants';
 
 export const App: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);

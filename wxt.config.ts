@@ -40,10 +40,14 @@ export default defineConfig({
       },
       default_popup: 'popup.html',
     },
-    options_page: 'options.html',
     options_ui: {
       page: 'options.html',
       open_in_tab: true,
     },
+  },
+  transformManifest(manifest) {
+    if (manifest.options_ui) {
+      manifest.options_ui.open_in_tab = true;
+    }
   },
 });

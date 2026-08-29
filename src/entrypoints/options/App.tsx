@@ -23,7 +23,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { ProviderConfig, UserSettings, ExtensionResponse } from '../../types';
-import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../background';
+import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../../constants';
 
 type TabType = 'providers' | 'shortcuts' | 'backup';
 
