@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { UserSettings, ExtensionResponse } from '../../types';
 import { DEFAULT_SETTINGS } from '../../constants';
+import { ProviderLogo } from '../../components/ProviderIcons';
 
 export const App: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -128,7 +129,7 @@ export const App: React.FC = () => {
             >
               BiliFlow
               <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500 font-bold">
-                v0.2.0
+                v0.3.0
               </span>
             </h1>
             <p className="text-[10px] text-slate-400">极速心流 · B站视频提炼</p>
@@ -151,7 +152,10 @@ export const App: React.FC = () => {
       {/* Provider Quick Switcher */}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-slate-400 flex items-center justify-between">
-          <span>当前活跃服务商</span>
+          <span className="flex items-center gap-1.5">
+            <ProviderLogo providerId={activeProvider.id} icon={activeProvider.icon} className="w-3.5 h-3.5" />
+            <span>当前活跃服务商</span>
+          </span>
           {isConfigured ? (
             <span className="inline-flex items-center gap-1 text-[10px] text-emerald-500 font-semibold">
               <CheckCircle2 className="w-3 h-3" /> Key 已就绪
@@ -173,7 +177,7 @@ export const App: React.FC = () => {
         >
           {settings.providers.map((p) => (
             <option key={p.id} value={p.id}>
-              {p.icon || '⚡'} {p.name}
+              {p.name}
             </option>
           ))}
         </select>
@@ -183,7 +187,7 @@ export const App: React.FC = () => {
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
           <Cpu className="w-3.5 h-3.5 text-sky-500" />
-          <span>提炼所用模型</span>
+          <span>主用提炼模型</span>
         </label>
         <select
           value={settings.activeModel || activeProvider.selectedModel}
@@ -208,7 +212,7 @@ export const App: React.FC = () => {
         className="w-full py-2.5 px-3.5 bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-400 hover:to-cyan-400 active:scale-[0.98] text-white font-semibold rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-lg shadow-sky-500/20 cursor-pointer"
       >
         <Settings className="w-4 h-4" />
-        <span>打开高级设置中心 (拉取模型 / 改快捷键)</span>
+        <span>打开完整设置中心 (拉取模型/改快捷键)</span>
         <ExternalLink className="w-3 h-3" />
       </button>
 

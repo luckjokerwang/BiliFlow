@@ -57,6 +57,7 @@ export default defineBackground(() => {
                 subtitles,
                 provider: activeProvider,
                 model: settings.activeModel || activeProvider.selectedModel,
+                enableFallback: settings.enableFallback ?? true,
               });
 
               // Cache summary in local storage
@@ -101,6 +102,16 @@ export default defineBackground(() => {
             case 'TEST_PROVIDER_CONNECTION': {
               const testResult = await testProviderConnection(message.payload);
               sendResponse({ success: true, data: testResult });
+              break;
+            }
+
+            case 'OPEN_OPTIONS_PAGE': {
+              if (chrome.runtime?.openOptionsPage) {
+                chrome.runtime.openOptionsPage();
+              } else {
+                chrome.tabs.create({ url: chrome.runtime.getURL('options.html') });
+              }
+              sendResponse({ success: true, data: null });
               break;
             }
 

@@ -1,10 +1,10 @@
 // ==========================================
-// BiliFlow Data Contracts & Types
+// BiliFlow Data Contracts & Types (v0.3)
 // ==========================================
 
 export interface BiliRawSubtitleItem {
-  from: number; // Start timestamp in seconds (e.g. 0.22)
-  to: number;   // End timestamp in seconds (e.g. 3.50)
+  from: number; // Start timestamp in seconds
+  to: number;   // End timestamp in seconds
   content: string;
 }
 
@@ -35,8 +35,8 @@ export interface TranscriptChunk {
 
 export interface HighlightItem {
   id: number;
-  timestamp: number;     // In seconds (e.g. 154)
-  timestampStr: string;  // "mm:ss" formatted (e.g. "02:34")
+  timestamp: number;     // In seconds
+  timestampStr: string;  // "mm:ss"
   title: string;         // Short headline (< 20 chars)
   keyPoint: string;      // 1-2 sentence core insight
 }
@@ -49,20 +49,24 @@ export interface VideoSummaryResult {
   highlights: HighlightItem[];
   followUpQuestions?: string[];
   createdAt: number;
+  usedModel?: string;    // Actual model used (useful when fallback triggered)
+  isFallbackUsed?: boolean;
 }
 
 // ------------------------------------------
-// Multi-Provider & Model Config (Cherry Studio Style)
+// Multi-Provider & Model Hub (Two-Tier Architecture)
 // ------------------------------------------
 
 export interface ProviderConfig {
-  id: string;             // e.g. 'deepseek', 'siliconflow', 'custom-uuid'
-  name: string;           // e.g. 'DeepSeek', '硅基流动', 'Google Gemini'
-  baseUrl: string;        // e.g. 'https://api.deepseek.com/v1'
-  apiKey: string;         // e.g. 'sk-...'
+  id: string;              // Unique provider ID (e.g. 'deepseek', 'sensenova', 'custom-ollama')
+  name: string;            // Display name
+  baseUrl: string;         // Base URL (e.g. 'https://token.sensenova.cn/v1')
+  apiKey: string;          // API Key
   enabled: boolean;
-  models: string[];       // Available models fetched via API or pre-configured
-  selectedModel: string;  // Currently selected model for this provider
+  models: string[];        // User-curated active models shown in UI
+  remoteModels?: string[]; // Full list of models fetched from /v1/models (for picker modal)
+  selectedModel: string;   // Primary selected model
+  fallbackModel?: string;  // Fallback model if primary model fails
   isCustom?: boolean;
   docUrl?: string;
   icon?: string;
@@ -74,9 +78,10 @@ export interface UserSettings {
   providers: ProviderConfig[];
   activeProviderId: string;
   activeModel: string;
-  autoFetch: boolean;
-  shortcutToggle: string; // e.g. 'Alt+S' or 'Ctrl+Shift+B'
-  theme: ThemeMode;       // 'dark' | 'light'
+  enableFallback: boolean; // Auto failover to fallback model on failure
+  fallbackProviderId?: string;
+  shortcutToggle: string;  // e.g. 'Alt+S' or 'Ctrl+Shift+B'
+  theme: ThemeMode;        // 'dark' | 'light'
 }
 
 // ------------------------------------------
@@ -115,6 +120,9 @@ export type ExtensionMessage =
   | {
       type: 'TEST_PROVIDER_CONNECTION';
       payload: { baseUrl: string; apiKey: string; model?: string };
+    }
+  | {
+      type: 'OPEN_OPTIONS_PAGE';
     };
 
 export type ExtensionResponse<T = any> =

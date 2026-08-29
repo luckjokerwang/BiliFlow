@@ -12,6 +12,7 @@ import {
   CheckCircle2,
   Settings,
   RotateCcw,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   ExtensionMessage,
@@ -97,7 +98,11 @@ export const HudOverlay: React.FC = () => {
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 1800);
+    setTimeout(() => setToastMsg(null), 2000);
+  };
+
+  const handleOpenOptions = async () => {
+    await safeSendMessage({ type: 'OPEN_OPTIONS_PAGE' });
   };
 
   // Load custom settings & listen for live changes
@@ -181,7 +186,7 @@ export const HudOverlay: React.FC = () => {
         throw new Error(subRes.error || '获取字幕失败，该视频可能没有字幕。');
       }
 
-      // 2. Generate summary via LLM
+      // 2. Generate summary via LLM (with auto-fallback failover)
       const sumRes = await safeSendMessage<VideoSummaryResult>({
         type: 'GENERATE_SUMMARY',
         payload: {
@@ -197,6 +202,9 @@ export const HudOverlay: React.FC = () => {
       }
 
       setSummary(sumRes.data);
+      if (sumRes.data.isFallbackUsed) {
+        showToast(`⚡ 主模型异常，已自动启用兜底模型【${sumRes.data.usedModel}】完成提炼`);
+      }
     } catch (err: any) {
       console.error('[BiliFlow] Error loading summary:', err);
       setError(err?.message || '处理发生异常');
@@ -373,8 +381,8 @@ export const HudOverlay: React.FC = () => {
       >
         {/* Toast Notification Banner */}
         {toastMsg && (
-          <div className="bg-sky-500 text-white text-[11px] font-semibold py-1 px-3 flex items-center justify-center gap-1.5 animate-fade-in shadow-inner">
-            <CheckCircle2 className="w-3.5 h-3.5" />
+          <div className="bg-sky-500 text-white text-[11px] font-semibold py-1.5 px-3 flex items-center justify-center gap-1.5 animate-fade-in shadow-inner">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">{toastMsg}</span>
           </div>
         )}
@@ -401,6 +409,11 @@ export const HudOverlay: React.FC = () => {
                 <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500 font-bold">
                   HUD
                 </span>
+                {summary?.isFallbackUsed && (
+                  <span className="inline-flex items-center gap-0.5 text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 font-semibold">
+                    <ShieldCheck className="w-2.5 h-2.5" /> 容灾兜底
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -466,16 +479,10 @@ export const HudOverlay: React.FC = () => {
                   </button>
                 ) : (
                   <button
-                    onClick={() => {
-                      if (chrome.runtime?.openOptionsPage) {
-                        chrome.runtime.openOptionsPage();
-                      } else {
-                        window.open(chrome.runtime.getURL('options.html'));
-                      }
-                    }}
-                    className="inline-flex items-center gap-1 text-[11px] text-sky-500 hover:underline cursor-pointer pt-0.5"
+                    onClick={handleOpenOptions}
+                    className="inline-flex items-center gap-1 text-[11px] text-sky-500 hover:underline cursor-pointer pt-0.5 font-semibold"
                   >
-                    <Settings className="w-3 h-3" /> 前往设置中心配置厂商与 API Key
+                    <Settings className="w-3.5 h-3.5" /> 前往设置中心配置厂商与 API Key
                   </button>
                 )}
               </div>

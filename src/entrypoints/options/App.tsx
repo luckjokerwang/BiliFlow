@@ -22,12 +22,25 @@ import {
   Moon,
   Search,
   SlidersHorizontal,
+  ShieldCheck,
+  CheckSquare,
+  Square,
+  X,
   Sparkles,
 } from 'lucide-react';
 import { ProviderConfig, UserSettings, ExtensionResponse, ThemeMode } from '../../types';
 import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../../constants';
+import { ProviderLogo } from '../../components/ProviderIcons';
 
 type TabType = 'providers' | 'shortcuts' | 'backup';
+
+interface TestResultMap {
+  [providerId: string]: {
+    success: boolean;
+    latencyMs: number;
+    error?: string;
+  };
+}
 
 export const App: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -35,19 +48,33 @@ export const App: React.FC = () => {
   const [selectedProviderId, setSelectedProviderId] = useState<string>('sensenova');
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [testing, setTesting] = useState<boolean>(false);
-  const [testResult, setTestResult] = useState<{
-    success: boolean;
-    latencyMs: number;
-    error?: string;
-  } | null>(null);
+  const [testResults, setTestResults] = useState<TestResultMap>({});
   const [fetchingModels, setFetchingModels] = useState<boolean>(false);
-  const [fetchModelMsg, setFetchModelMsg] = useState<{ text: string; isError: boolean } | null>(null);
   const [savedToast, setSavedToast] = useState<string | null>(null);
   const [recordingKey, setRecordingKey] = useState<boolean>(false);
   const [importJsonText, setImportJsonText] = useState<string>('');
-  const [modelSearchQuery, setModelSearchQuery] = useState<string>('');
 
-  // Load Settings
+  // Modals
+  const [showAddProviderModal, setShowAddProviderModal] = useState<boolean>(false);
+  const [newProviderForm, setNewProviderForm] = useState<{
+    id: string;
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    icon: string;
+  }>({
+    id: '',
+    name: '',
+    baseUrl: 'https://api.openai.com/v1',
+    apiKey: '',
+    icon: '⚡',
+  });
+
+  const [showModelPickerModal, setShowModelPickerModal] = useState<boolean>(false);
+  const [pickerSearchQuery, setPickerSearchQuery] = useState<string>('');
+  const [pickerSelectedModels, setPickerSelectedModels] = useState<string[]>([]);
+
+  // Load Settings on Mount
   useEffect(() => {
     (async () => {
       try {
@@ -68,10 +95,10 @@ export const App: React.FC = () => {
 
   const triggerToast = (msg: string) => {
     setSavedToast(msg);
-    setTimeout(() => setSavedToast(null), 2200);
+    setTimeout(() => setSavedToast(null), 2400);
   };
 
-  const saveSettings = async (newSettings: UserSettings, toastText = '配置已自动同步') => {
+  const saveSettings = async (newSettings: UserSettings, toastText = '配置已自动保存') => {
     setSettings(newSettings);
     try {
       await chrome.runtime.sendMessage({
@@ -88,7 +115,10 @@ export const App: React.FC = () => {
 
   const toggleTheme = () => {
     const nextTheme: ThemeMode = isDark ? 'light' : 'dark';
-    saveSettings({ ...settings, theme: nextTheme }, `已切换为 ${nextTheme === 'light' ? '浅色' : '暗色'} 主题`);
+    saveSettings(
+      { ...settings, theme: nextTheme },
+      `已切换为 ${nextTheme === 'light' ? '柔和浅色' : '深邃暗色'} 模式`
+    );
   };
 
   const selectedProvider =
@@ -110,10 +140,9 @@ export const App: React.FC = () => {
     saveSettings(updatedSettings);
   };
 
-  // Test Provider Connection (Ping)
+  // Test Provider Connection (Ping) with ISOLATED state per provider
   const handleTestConnection = async () => {
     setTesting(true);
-    setTestResult(null);
     try {
       const res: ExtensionResponse<{
         success: boolean;
@@ -129,98 +158,158 @@ export const App: React.FC = () => {
       });
 
       if (res.success && res.data) {
-        setTestResult(res.data);
+        setTestResults((prev) => ({
+          ...prev,
+          [selectedProvider.id]: res.data,
+        }));
       } else {
-        setTestResult({
-          success: false,
-          latencyMs: 0,
-          error: res.error || '测试请求失败',
-        });
+        setTestResults((prev) => ({
+          ...prev,
+          [selectedProvider.id]: {
+            success: false,
+            latencyMs: 0,
+            error: res.error || '测试请求失败',
+          },
+        }));
       }
     } catch (e: any) {
-      setTestResult({
-        success: false,
-        latencyMs: 0,
-        error: e?.message || '连接失败',
-      });
+      setTestResults((prev) => ({
+        ...prev,
+        [selectedProvider.id]: {
+          success: false,
+          latencyMs: 0,
+          error: e?.message || '网络连接超时或无法访问该地址',
+        },
+      }));
     } finally {
       setTesting(false);
     }
   };
 
-  // Fetch Models via /v1/models
-  const handleFetchModels = async () => {
-    setFetchingModels(true);
-    setFetchModelMsg(null);
-    try {
-      const res: ExtensionResponse<string[]> = await chrome.runtime.sendMessage({
-        type: 'FETCH_PROVIDER_MODELS',
-        payload: {
-          baseUrl: selectedProvider.baseUrl,
-          apiKey: selectedProvider.apiKey,
-        },
-      });
+  // Open Model Picker & Pull Models from API
+  const handleOpenModelPicker = async (forceFetch = false) => {
+    setPickerSelectedModels([...selectedProvider.models]);
+    setShowModelPickerModal(true);
 
-      if (res.success && res.data && res.data.length > 0) {
-        const fetched = res.data;
-        updateSelectedProvider({
-          models: fetched,
-          selectedModel: fetched.includes(selectedProvider.selectedModel)
-            ? selectedProvider.selectedModel
-            : fetched[0],
-        });
-        setFetchModelMsg({ text: `成功获取 ${fetched.length} 个可用模型！`, isError: false });
-      } else {
-        setFetchModelMsg({ text: `拉取失败: ${res.error || '返回列表为空'}`, isError: true });
+    if (forceFetch || !selectedProvider.remoteModels || selectedProvider.remoteModels.length === 0) {
+      if (!selectedProvider.apiKey) {
+        return;
       }
-    } catch (e: any) {
-      setFetchModelMsg({ text: `拉取异常: ${e?.message || '请求失败'}`, isError: true });
-    } finally {
-      setFetchingModels(false);
-      setTimeout(() => setFetchModelMsg(null), 4000);
+      setFetchingModels(true);
+      try {
+        const res: ExtensionResponse<string[]> = await chrome.runtime.sendMessage({
+          type: 'FETCH_PROVIDER_MODELS',
+          payload: {
+            baseUrl: selectedProvider.baseUrl,
+            apiKey: selectedProvider.apiKey,
+          },
+        });
+
+        if (res.success && res.data && res.data.length > 0) {
+          const fetched = res.data;
+          updateSelectedProvider({
+            remoteModels: fetched,
+            models:
+              selectedProvider.models.length > 0
+                ? selectedProvider.models
+                : fetched.slice(0, 3),
+            selectedModel:
+              selectedProvider.selectedModel || fetched[0],
+            fallbackModel:
+              selectedProvider.fallbackModel || fetched[1] || fetched[0],
+          });
+          setPickerSelectedModels(
+            selectedProvider.models.length > 0 ? selectedProvider.models : fetched.slice(0, 3)
+          );
+          triggerToast(`成功获取 ${fetched.length} 个可用模型！`);
+        }
+      } catch (err: any) {
+        console.error('Fetch models error:', err);
+      } finally {
+        setFetchingModels(false);
+      }
     }
   };
 
-  // Set Active Provider
-  const handleSetActiveProvider = (pId: string) => {
-    const target = settings.providers.find((p) => p.id === pId);
-    if (!target) return;
-    saveSettings(
-      {
-        ...settings,
-        activeProviderId: pId,
-        activeModel: target.selectedModel || target.models[0] || '',
-      },
-      `已将【${target.name}】设为当前使用厂商`
-    );
+  // Save Picked Models to active model pool
+  const handleSavePickedModels = () => {
+    if (pickerSelectedModels.length === 0) {
+      alert('请至少保留勾选 1 款模型作为可用模型！');
+      return;
+    }
+    const nextSelected = pickerSelectedModels.includes(selectedProvider.selectedModel)
+      ? selectedProvider.selectedModel
+      : pickerSelectedModels[0];
+    const nextFallback = pickerSelectedModels.includes(selectedProvider.fallbackModel || '')
+      ? selectedProvider.fallbackModel
+      : pickerSelectedModels[1] || nextSelected;
+
+    updateSelectedProvider({
+      models: pickerSelectedModels,
+      selectedModel: nextSelected,
+      fallbackModel: nextFallback,
+    });
+    setShowModelPickerModal(false);
+    triggerToast(`已保存 ${pickerSelectedModels.length} 款模型至前端模型池`);
   };
 
-  // Add Custom Provider
-  const handleAddCustomProvider = () => {
-    const newId = `custom_${Date.now()}`;
+  // Add Custom Provider Handler
+  const handleConfirmAddProvider = () => {
+    const id = newProviderForm.id.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
+    const name = newProviderForm.name.trim();
+    const baseUrl = newProviderForm.baseUrl.trim();
+
+    if (!id) {
+      alert('请填写厂商唯一 ID（仅支持小写字母/数字/下划线）');
+      return;
+    }
+    if (!name) {
+      alert('请填写厂商显示名称');
+      return;
+    }
+    if (!baseUrl) {
+      alert('请填写 API Base URL');
+      return;
+    }
+    if (settings.providers.some((p) => p.id === id)) {
+      alert(`已存在 ID 为 ${id} 的厂商，请更换一个唯一 ID`);
+      return;
+    }
+
     const newProvider: ProviderConfig = {
-      id: newId,
-      name: '自定义大模型厂商',
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: '',
+      id,
+      name,
+      baseUrl,
+      apiKey: newProviderForm.apiKey.trim(),
       enabled: true,
-      models: ['gpt-4o-mini', 'deepseek-chat'],
-      selectedModel: 'gpt-4o-mini',
+      models: [],
+      remoteModels: [],
+      selectedModel: '',
+      fallbackModel: '',
       isCustom: true,
-      icon: '✨',
+      icon: newProviderForm.icon || '⚡',
     };
 
     const updated = [...settings.providers, newProvider];
-    setSelectedProviderId(newId);
-    saveSettings({ ...settings, providers: updated }, '已创建自定义厂商');
+    setSelectedProviderId(id);
+    saveSettings({ ...settings, providers: updated }, `已成功创建厂商【${name}】`);
+    setShowAddProviderModal(false);
+    setNewProviderForm({
+      id: '',
+      name: '',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: '',
+      icon: '⚡',
+    });
   };
 
-  // Delete Custom Provider
+  // Delete Provider
   const handleDeleteProvider = (pId: string) => {
+    if (!confirm('确定要删除该厂商配置吗？')) return;
     const updated = settings.providers.filter((p) => p.id !== pId);
     let nextActiveId = settings.activeProviderId;
     if (nextActiveId === pId) {
-      nextActiveId = updated[0]?.id || 'deepseek';
+      nextActiveId = updated[0]?.id || 'sensenova';
     }
     setSelectedProviderId(nextActiveId);
     saveSettings(
@@ -233,7 +322,7 @@ export const App: React.FC = () => {
     );
   };
 
-  // Keyboard shortcut recorder
+  // Global Keyboard shortcut recorder
   useEffect(() => {
     if (!recordingKey) return;
 
@@ -290,14 +379,16 @@ export const App: React.FC = () => {
     }
   };
 
-  const filteredModels = (selectedProvider.models || []).filter((m) =>
-    m.toLowerCase().includes(modelSearchQuery.trim().toLowerCase())
+  const activeTestResult = testResults[selectedProvider.id];
+  const allRemoteModels = selectedProvider.remoteModels || selectedProvider.models || [];
+  const filteredRemoteModels = allRemoteModels.filter((m) =>
+    m.toLowerCase().includes(pickerSearchQuery.trim().toLowerCase())
   );
 
   return (
     <div
       className={`flex h-screen overflow-hidden font-sans transition-colors duration-200 ${
-        isDark ? 'bg-[#080d1a] text-slate-100' : 'bg-[#f4f6fb] text-slate-800'
+        isDark ? 'bg-[#080d1a] text-slate-100' : 'bg-[#f5f6f8] text-slate-800'
       }`}
     >
       {/* Toast Notification */}
@@ -313,7 +404,7 @@ export const App: React.FC = () => {
         className={`w-72 flex flex-col justify-between shrink-0 border-r transition-colors ${
           isDark
             ? 'bg-[#0f172a]/95 border-slate-800/80 text-slate-200'
-            : 'bg-white border-slate-200 text-slate-700 shadow-sm'
+            : 'bg-white border-slate-200/80 text-slate-700 shadow-sm'
         }`}
       >
         <div className="p-4 space-y-4">
@@ -331,10 +422,10 @@ export const App: React.FC = () => {
                 >
                   BiliFlow
                   <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                    v0.2.0
+                    v0.3.0
                   </span>
                 </h1>
-                <p className="text-[11px] text-slate-400">极速心流 · 设置中心</p>
+                <p className="text-[11px] text-slate-400">极速心流 · 模型工作台</p>
               </div>
             </div>
 
@@ -346,7 +437,7 @@ export const App: React.FC = () => {
                   ? 'bg-slate-800/80 border-slate-700 text-amber-300 hover:bg-slate-700'
                   : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
               }`}
-              title={isDark ? '切换为明亮模式 (Light)' : '切换为暗黑模式 (Dark)'}
+              title={isDark ? '切换为柔和浅色模式 (Light)' : '切换为暗黑夜间模式 (Dark)'}
             >
               {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
             </button>
@@ -407,16 +498,16 @@ export const App: React.FC = () => {
               <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400">
                 <span>厂商列表 ({settings.providers.length})</span>
                 <button
-                  onClick={handleAddCustomProvider}
-                  className="flex items-center gap-1 text-sky-500 hover:text-sky-400 transition-colors cursor-pointer"
-                  title="添加自定义 OpenAI 兼容接口"
+                  onClick={() => setShowAddProviderModal(true)}
+                  className="flex items-center gap-1 text-sky-500 hover:text-sky-400 font-medium transition-colors cursor-pointer"
+                  title="添加自定义大模型厂商"
                 >
                   <Plus className="w-3.5 h-3.5" />
                   <span>添加厂商</span>
                 </button>
               </div>
 
-              <div className="space-y-1 max-h-[50vh] overflow-y-auto pr-1">
+              <div className="space-y-1 max-h-[52vh] overflow-y-auto pr-1">
                 {settings.providers.map((p) => {
                   const isSelected = p.id === selectedProvider.id;
                   const isActive = p.id === settings.activeProviderId;
@@ -425,18 +516,20 @@ export const App: React.FC = () => {
                     <div
                       key={p.id}
                       onClick={() => setSelectedProviderId(p.id)}
-                      className={`group flex items-center justify-between px-3 py-2 rounded-xl border text-xs cursor-pointer transition-all ${
+                      className={`group flex items-center justify-between px-3 py-2.5 rounded-xl border text-xs cursor-pointer transition-all ${
                         isSelected
                           ? isDark
                             ? 'bg-slate-800/90 border-sky-500/60 text-white shadow-sm'
-                            : 'bg-sky-50/80 border-sky-400/80 text-sky-900 shadow-sm'
+                            : 'bg-sky-50/90 border-sky-400/80 text-sky-900 shadow-sm font-semibold'
                           : isDark
                           ? 'bg-slate-900/40 border-slate-800/60 text-slate-300 hover:bg-slate-800/50'
                           : 'bg-white border-slate-200/80 text-slate-700 hover:bg-slate-50'
                       }`}
                     >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="text-sm">{p.icon || '⚡'}</span>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="shrink-0 flex items-center justify-center">
+                          <ProviderLogo providerId={p.id} icon={p.icon} className="w-4 h-4" />
+                        </div>
                         <div className="truncate">
                           <div className="font-medium truncate flex items-center gap-1.5">
                             {p.name}
@@ -451,7 +544,7 @@ export const App: React.FC = () => {
                               isDark ? 'text-slate-400' : 'text-slate-500'
                             }`}
                           >
-                            {p.selectedModel || p.models[0]}
+                            {p.selectedModel || '未选定模型'}
                           </div>
                         </div>
                       </div>
@@ -485,18 +578,18 @@ export const App: React.FC = () => {
           }`}
         >
           <p className="font-medium">BiliFlow 设置工作台</p>
-          <p className="text-[10px] font-mono">BYOK · 所有数据严格存储于本地</p>
+          <p className="text-[10px] font-mono">BYOK · 0 远程上传 · 纯本地存储</p>
         </div>
       </div>
 
       {/* Right Main Dashboard */}
       <div className="flex-1 overflow-y-auto p-6 lg:p-8">
-        {/* TAB 1: PROVIDERS & MODEL HUB (High density 2-column layout) */}
+        {/* TAB 1: UNIFIED TOP-TO-BOTTOM FULL WIDTH CARD */}
         {activeTab === 'providers' && (
-          <div className="max-w-6xl mx-auto space-y-5 animate-fade-in">
+          <div className="max-w-5xl mx-auto space-y-5 animate-fade-in pb-12">
             {/* Top Provider Hero Banner */}
             <div
-              className={`p-5 rounded-2xl border flex items-center justify-between shadow-sm ${
+              className={`p-5 rounded-2xl border flex items-center justify-between shadow-sm transition-colors ${
                 isDark
                   ? 'bg-[#111a2e]/90 border-slate-800/80'
                   : 'bg-white border-slate-200 shadow-slate-100'
@@ -504,16 +597,16 @@ export const App: React.FC = () => {
             >
               <div className="flex items-center gap-4">
                 <div
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shadow-inner border ${
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner border ${
                     isDark
                       ? 'bg-slate-800/90 border-slate-700 text-white'
-                      : 'bg-slate-100 border-slate-200'
+                      : 'bg-slate-50 border-slate-200'
                   }`}
                 >
-                  {selectedProvider.icon || '⚡'}
+                  <ProviderLogo providerId={selectedProvider.id} icon={selectedProvider.icon} className="w-7 h-7" />
                 </div>
                 <div>
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3">
                     <input
                       type="text"
                       disabled={!selectedProvider.isCustom}
@@ -529,7 +622,19 @@ export const App: React.FC = () => {
                       </span>
                     ) : (
                       <button
-                        onClick={() => handleSetActiveProvider(selectedProvider.id)}
+                        onClick={() =>
+                          saveSettings(
+                            {
+                              ...settings,
+                              activeProviderId: selectedProvider.id,
+                              activeModel:
+                                selectedProvider.selectedModel ||
+                                selectedProvider.models[0] ||
+                                '',
+                            },
+                            `已将【${selectedProvider.name}】设为当前使用`
+                          )
+                        }
                         className={`px-3 py-1 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
                           isDark
                             ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
@@ -541,7 +646,7 @@ export const App: React.FC = () => {
                     )}
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    配置并管理该厂商的 API 连接与可用模型
+                    配置并管理该厂商的 API 连接、主用提炼模型与兜底容灾策略
                   </p>
                 </div>
               </div>
@@ -559,28 +664,28 @@ export const App: React.FC = () => {
               )}
             </div>
 
-            {/* 2-Column Responsive Dashboard */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-              {/* Column 1: Connection & Authentication (5 Cols) */}
-              <div
-                className={`lg:col-span-5 p-5 rounded-2xl border flex flex-col justify-between space-y-4 shadow-sm ${
-                  isDark
-                    ? 'bg-[#111a2e]/80 border-slate-800/80'
-                    : 'bg-white border-slate-200'
-                }`}
-              >
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b pb-2.5 border-slate-700/40">
-                    <h2
-                      className={`text-sm font-semibold flex items-center gap-2 ${
-                        isDark ? 'text-white' : 'text-slate-900'
-                      }`}
-                    >
-                      <SlidersHorizontal className="w-4 h-4 text-sky-500" />
-                      <span>连接与认证 (Connection)</span>
-                    </h2>
-                  </div>
+            {/* UNIFIED FULL-WIDTH CARD (Top to Bottom Flow) */}
+            <div
+              className={`p-6 rounded-2xl border space-y-6 shadow-sm transition-colors ${
+                isDark
+                  ? 'bg-[#111a2e]/80 border-slate-800/80'
+                  : 'bg-white border-slate-200'
+              }`}
+            >
+              {/* SECTION 1: CONNECTION & AUTHENTICATION */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b pb-2.5 border-slate-700/40">
+                  <h2
+                    className={`text-sm font-semibold flex items-center gap-2 ${
+                      isDark ? 'text-white' : 'text-slate-900'
+                    }`}
+                  >
+                    <SlidersHorizontal className="w-4 h-4 text-sky-500" />
+                    <span>连接与认证 (Connection & Auth)</span>
+                  </h2>
+                </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* API Key Input */}
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-slate-400 flex items-center gap-1.5">
@@ -595,7 +700,7 @@ export const App: React.FC = () => {
                           updateSelectedProvider({ apiKey: e.target.value.trim() })
                         }
                         placeholder="sk-..."
-                        className={`w-full px-3.5 py-2 pr-10 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
+                        className={`w-full px-3.5 py-2.5 pr-10 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
                           isDark
                             ? 'bg-slate-900/90 border-slate-700/80 text-white placeholder-slate-500'
                             : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
@@ -624,60 +729,53 @@ export const App: React.FC = () => {
                         updateSelectedProvider({ baseUrl: e.target.value.trim() })
                       }
                       placeholder="https://token.sensenova.cn/v1"
-                      className={`w-full px-3.5 py-2 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
                         isDark
                           ? 'bg-slate-900/90 border-slate-700/80 text-white placeholder-slate-500'
-                          : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                            : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                       }`}
                     />
-                    <p className="text-[10px] text-slate-400">
-                      支持商汤、硅基流动、DeepSeek 或任意 OpenAI 兼容端点。
-                    </p>
                   </div>
                 </div>
 
-                {/* Ping Connection Test Button & Diagnostics */}
-                <div className="pt-2 space-y-2 border-t border-slate-700/40">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={handleTestConnection}
-                      disabled={testing || !selectedProvider.apiKey}
-                      className={`w-full flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
-                        isDark
-                          ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700 disabled:opacity-40'
-                          : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200 disabled:opacity-40'
-                      }`}
-                    >
-                      <Activity className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
-                      <span>{testing ? '正在测试连接...' : '测试连通性 (Ping)'}</span>
-                    </button>
-                  </div>
+                {/* Ping Connection Test Button & Diagnostics Inline */}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
+                  <button
+                    onClick={handleTestConnection}
+                    disabled={testing || !selectedProvider.apiKey}
+                    className={`flex items-center justify-center gap-2 px-5 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
+                      isDark
+                        ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700 disabled:opacity-40'
+                        : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200 disabled:opacity-40'
+                    }`}
+                  >
+                    <Activity className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
+                    <span>{testing ? '正在测试连接中...' : '测试连通性 (Ping)'}</span>
+                  </button>
 
-                  {testResult && (
+                  {activeTestResult && (
                     <div
-                      className={`p-2.5 rounded-xl border text-xs flex items-start gap-2 animate-fade-in ${
-                        testResult.success
+                      className={`flex-1 p-2.5 rounded-xl border text-xs flex items-center gap-2 animate-fade-in ${
+                        activeTestResult.success
                           ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
                           : 'bg-rose-500/10 border-rose-500/30 text-rose-500'
                       }`}
                     >
-                      {testResult.success ? (
+                      {activeTestResult.success ? (
                         <>
-                          <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                          <div>
-                            <p className="font-semibold">连通性正常</p>
-                            <p className="text-[11px] opacity-90 font-mono">
-                              响应延迟: {testResult.latencyMs} ms
-                            </p>
-                          </div>
+                          <CheckCircle2 className="w-4 h-4 shrink-0" />
+                          <span className="font-semibold">连通性正常</span>
+                          <span className="opacity-90 font-mono text-[11px]">
+                            · 响应延迟: {activeTestResult.latencyMs} ms
+                          </span>
                         </>
                       ) : (
                         <>
-                          <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                          <div className="min-w-0">
-                            <p className="font-semibold">连接失败</p>
-                            <p className="text-[11px] opacity-90 break-all">{testResult.error}</p>
-                          </div>
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span className="font-semibold shrink-0">连接异常:</span>
+                          <span className="opacity-90 break-all truncate text-[11px]">
+                            {activeTestResult.error}
+                          </span>
                         </>
                       )}
                     </div>
@@ -685,62 +783,57 @@ export const App: React.FC = () => {
                 </div>
               </div>
 
-              {/* Column 2: Model Management & Matrix (7 Cols) */}
-              <div
-                className={`lg:col-span-7 p-5 rounded-2xl border flex flex-col justify-between space-y-4 shadow-sm ${
-                  isDark
-                    ? 'bg-[#111a2e]/80 border-slate-800/80'
-                    : 'bg-white border-slate-200'
-                }`}
-              >
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between border-b pb-2.5 border-slate-700/40">
-                    <div className="flex items-center gap-2">
-                      <Cpu className="w-4 h-4 text-sky-500" />
-                      <h2
-                        className={`text-sm font-semibold ${
-                          isDark ? 'text-white' : 'text-slate-900'
-                        }`}
-                      >
-                        模型管理与矩阵 (Model Hub)
-                      </h2>
-                    </div>
+              {/* SECTION 2: TWO-TIER MODEL HUB & FALLBACK POLICY */}
+              <div className="space-y-4 pt-4 border-t border-slate-700/40">
+                <div className="flex items-center justify-between border-b pb-2.5 border-slate-700/40">
+                  <div className="flex items-center gap-2">
+                    <Cpu className="w-4 h-4 text-sky-500" />
+                    <h2
+                      className={`text-sm font-semibold ${
+                        isDark ? 'text-white' : 'text-slate-900'
+                      }`}
+                    >
+                      模型池与容灾策略 (Model Hub & Fallback)
+                    </h2>
+                  </div>
 
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={handleFetchModels}
+                      onClick={() => handleOpenModelPicker(true)}
                       disabled={fetchingModels || !selectedProvider.apiKey}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-500 text-xs font-semibold rounded-xl border border-sky-500/30 transition-all cursor-pointer disabled:opacity-40"
+                      className="flex items-center gap-1.5 px-3.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-500 text-xs font-semibold rounded-xl border border-sky-500/30 transition-all cursor-pointer disabled:opacity-40"
                     >
                       <RefreshCw
                         className={`w-3.5 h-3.5 ${fetchingModels ? 'animate-spin' : ''}`}
                       />
                       <span>{fetchingModels ? '拉取中...' : '自动拉取模型列表'}</span>
                     </button>
-                  </div>
 
-                  {fetchModelMsg && (
-                    <div
-                      className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${
-                        fetchModelMsg.isError
-                          ? 'bg-rose-500/10 border-rose-500/30 text-rose-500'
-                          : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-500'
-                      }`}
+                    <button
+                      onClick={() => handleOpenModelPicker(false)}
+                      className="flex items-center gap-1 px-3.5 py-1.5 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-xs font-medium rounded-xl border border-slate-700/60 transition-all cursor-pointer"
                     >
-                      {fetchModelMsg.text}
-                    </div>
-                  )}
+                      <span>管理 / 勾选模型池</span>
+                    </button>
+                  </div>
+                </div>
 
-                  {/* Current Active Model */}
+                {/* Primary Model & Fallback Model Selectors */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Primary Model */}
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-slate-400">当前选定提炼模型</label>
+                    <label className="text-xs font-medium text-slate-400 flex items-center justify-between">
+                      <span>主用提炼模型 (Primary)</span>
+                      <span className="text-[10px] text-sky-500 font-semibold">首选</span>
+                    </label>
                     <input
                       type="text"
                       value={selectedProvider.selectedModel}
                       onChange={(e) =>
                         updateSelectedProvider({ selectedModel: e.target.value.trim() })
                       }
-                      placeholder="输入或选择模型名，如 SenseChat-5"
-                      className={`w-full px-3.5 py-2 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
+                      placeholder="如 sensenova-6.7-flash-lite"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
                         isDark
                           ? 'bg-slate-900/90 border-slate-700/80 text-white placeholder-slate-500'
                           : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
@@ -748,59 +841,113 @@ export const App: React.FC = () => {
                     />
                   </div>
 
-                  {/* Model Search & Chip Matrix */}
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium text-slate-400">
-                        可用模型标签 ({filteredModels.length}/{selectedProvider.models?.length || 0})
+                  {/* Fallback Model */}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-slate-400 flex items-center justify-between">
+                      <span>兜底备用模型 (Fallback)</span>
+                      <span className="text-[10px] text-amber-500 font-semibold">
+                        报错时自动切换
                       </span>
-                      {selectedProvider.models && selectedProvider.models.length > 5 && (
-                        <div className="relative w-44">
-                          <input
-                            type="text"
-                            value={modelSearchQuery}
-                            onChange={(e) => setModelSearchQuery(e.target.value)}
-                            placeholder="筛选模型..."
-                            className={`w-full pl-6 pr-2 py-1 text-[11px] rounded-lg border focus:outline-none focus:border-sky-500 ${
-                              isDark
-                                ? 'bg-slate-900 border-slate-700 text-white'
-                                : 'bg-slate-50 border-slate-200 text-slate-800'
-                            }`}
-                          />
-                          <Search className="w-3 h-3 text-slate-400 absolute left-2 top-1/2 -translate-y-1/2" />
-                        </div>
-                      )}
-                    </div>
-
-                    <div
-                      className={`flex flex-wrap gap-1.5 max-h-52 overflow-y-auto p-2 rounded-xl border ${
-                        isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    </label>
+                    <input
+                      type="text"
+                      value={selectedProvider.fallbackModel || ''}
+                      onChange={(e) =>
+                        updateSelectedProvider({ fallbackModel: e.target.value.trim() })
+                      }
+                      placeholder="如 SenseChat-5"
+                      className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
+                        isDark
+                          ? 'bg-slate-900/90 border-slate-700/80 text-white placeholder-slate-500'
+                          : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                       }`}
-                    >
-                      {filteredModels.map((m) => {
-                        const isModelActive = selectedProvider.selectedModel === m;
+                    />
+                  </div>
+                </div>
+
+                {/* Fallback Failover Toggle */}
+                <div
+                  className={`p-3.5 rounded-xl border flex items-center justify-between ${
+                    isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <ShieldCheck className="w-4 h-4 text-emerald-500 shrink-0" />
+                    <div>
+                      <p className="text-xs font-semibold">自动容灾故障转移</p>
+                      <p className="text-[11px] text-slate-400">
+                        当主用模型遭遇限流 (429)、余额不足 (402) 或服务器错误时，自动无感切换至兜底模型重试
+                      </p>
+                    </div>
+                  </div>
+                  <input
+                    type="checkbox"
+                    checked={settings.enableFallback ?? true}
+                    onChange={(e) =>
+                      saveSettings(
+                        { ...settings, enableFallback: e.target.checked },
+                        e.target.checked ? '已开启故障自动容灾转移' : '已关闭故障自动容灾转移'
+                      )
+                    }
+                    className="w-4 h-4 accent-sky-500 cursor-pointer"
+                  />
+                </div>
+
+                {/* Curated Active Models Chips */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-slate-400">
+                      精选激活模型标签 ({selectedProvider.models?.length || 0} 款 · 点击快速选为主模型)
+                    </span>
+                  </div>
+
+                  <div
+                    className={`flex flex-wrap gap-2 min-h-[90px] p-3 rounded-xl border ${
+                      isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    {selectedProvider.models && selectedProvider.models.length > 0 ? (
+                      selectedProvider.models.map((m) => {
+                        const isPrimary = selectedProvider.selectedModel === m;
+                        const isFallback = selectedProvider.fallbackModel === m;
+
                         return (
                           <button
                             key={m}
                             onClick={() => updateSelectedProvider({ selectedModel: m })}
-                            className={`px-2.5 py-1 rounded-lg text-[11px] font-mono transition-all cursor-pointer ${
-                              isModelActive
+                            className={`group relative px-3 py-1.5 rounded-xl text-xs font-mono transition-all cursor-pointer flex items-center gap-1.5 ${
+                              isPrimary
                                 ? 'bg-sky-500 text-white font-semibold shadow-sm'
                                 : isDark
                                 ? 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-slate-700/60'
                                 : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
                             }`}
                           >
-                            {m}
+                            <span>{m}</span>
+                            {isPrimary && (
+                              <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded font-bold">
+                                主用
+                              </span>
+                            )}
+                            {isFallback && !isPrimary && (
+                              <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1 py-0.2 rounded font-bold">
+                                兜底
+                              </span>
+                            )}
                           </button>
                         );
-                      })}
-                      {filteredModels.length === 0 && (
-                        <div className="p-4 text-center text-xs text-slate-400 w-full">
-                          未匹配到模型，可点击右上角“自动拉取模型列表”或直接手动输入。
-                        </div>
-                      )}
-                    </div>
+                      })
+                    ) : (
+                      <div className="p-4 text-center text-xs text-slate-400 w-full flex flex-col items-center justify-center gap-1.5">
+                        <p>当前尚未选择任何模型</p>
+                        <button
+                          onClick={() => handleOpenModelPicker(true)}
+                          className="text-sky-500 hover:underline font-semibold"
+                        >
+                          点击拉取并勾选可用模型
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
@@ -813,7 +960,7 @@ export const App: React.FC = () => {
           <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
             {/* Global Shortcut Recorder */}
             <div
-              className={`p-6 rounded-2xl border space-y-4 shadow-sm ${
+              className={`p-6 rounded-2xl border space-y-4 shadow-sm transition-colors ${
                 isDark
                   ? 'bg-[#111a2e]/90 border-slate-800/80'
                   : 'bg-white border-slate-200'
@@ -852,7 +999,12 @@ export const App: React.FC = () => {
 
                 {settings.shortcutToggle !== 'Alt+S' && (
                   <button
-                    onClick={() => saveSettings({ ...settings, shortcutToggle: 'Alt+S' }, '已恢复默认快捷键 Alt+S')}
+                    onClick={() =>
+                      saveSettings(
+                        { ...settings, shortcutToggle: 'Alt+S' },
+                        '已恢复默认快捷键 Alt+S'
+                      )
+                    }
                     className="text-xs text-slate-400 hover:text-slate-200 underline cursor-pointer"
                   >
                     恢复默认 (Alt+S)
@@ -863,7 +1015,7 @@ export const App: React.FC = () => {
 
             {/* Cheatsheet */}
             <div
-              className={`p-6 rounded-2xl border space-y-4 shadow-sm ${
+              className={`p-6 rounded-2xl border space-y-4 shadow-sm transition-colors ${
                 isDark
                   ? 'bg-[#111a2e]/90 border-slate-800/80'
                   : 'bg-white border-slate-200'
@@ -937,7 +1089,7 @@ export const App: React.FC = () => {
         {activeTab === 'backup' && (
           <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
             <div
-              className={`p-6 rounded-2xl border space-y-3 shadow-sm ${
+              className={`p-6 rounded-2xl border space-y-3 shadow-sm transition-colors ${
                 isDark
                   ? 'bg-[#111a2e]/90 border-slate-800/80'
                   : 'bg-white border-slate-200'
@@ -964,7 +1116,7 @@ export const App: React.FC = () => {
             </div>
 
             <div
-              className={`p-6 rounded-2xl border space-y-3 shadow-sm ${
+              className={`p-6 rounded-2xl border space-y-3 shadow-sm transition-colors ${
                 isDark
                   ? 'bg-[#111a2e]/90 border-slate-800/80'
                   : 'bg-white border-slate-200'
@@ -1021,6 +1173,255 @@ export const App: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ========================================================= */}
+      {/* MODAL 1: ADD CUSTOM PROVIDER MODAL */}
+      {/* ========================================================= */}
+      {showAddProviderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div
+            className={`w-full max-w-lg rounded-2xl border p-6 space-y-5 shadow-2xl ${
+              isDark ? 'bg-[#0f172a] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            <div className="flex items-center justify-between border-b pb-3 border-slate-700/40">
+              <h3 className="text-base font-bold flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-sky-500" />
+                <span>添加自定义大模型厂商</span>
+              </h3>
+              <button
+                onClick={() => setShowAddProviderModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-3.5 text-xs">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-medium">厂商唯一 ID (必填)</label>
+                  <input
+                    type="text"
+                    value={newProviderForm.id}
+                    onChange={(e) =>
+                      setNewProviderForm({ ...newProviderForm, id: e.target.value })
+                    }
+                    placeholder="如 my_ollama, sense_v2"
+                    className={`w-full px-3 py-2 rounded-xl font-mono border focus:outline-none focus:border-sky-500 ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 text-white'
+                        : 'bg-slate-50 border-slate-200 text-slate-900'
+                    }`}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-slate-400 font-medium">显示名称 (必填)</label>
+                  <input
+                    type="text"
+                    value={newProviderForm.name}
+                    onChange={(e) =>
+                      setNewProviderForm({ ...newProviderForm, name: e.target.value })
+                    }
+                    placeholder="如 私有服务器 / 通义千问"
+                    className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:border-sky-500 ${
+                      isDark
+                        ? 'bg-slate-900 border-slate-700 text-white'
+                        : 'bg-slate-50 border-slate-200 text-slate-900'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 font-medium">API 接口地址 Base URL (必填)</label>
+                <input
+                  type="text"
+                  value={newProviderForm.baseUrl}
+                  onChange={(e) =>
+                    setNewProviderForm({ ...newProviderForm, baseUrl: e.target.value })
+                  }
+                  placeholder="https://api.openai.com/v1 或 http://localhost:11434/v1"
+                  className={`w-full px-3 py-2 rounded-xl font-mono border focus:outline-none focus:border-sky-500 ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-700 text-white'
+                      : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-slate-400 font-medium">API Key (选填)</label>
+                <input
+                  type="password"
+                  value={newProviderForm.apiKey}
+                  onChange={(e) =>
+                    setNewProviderForm({ ...newProviderForm, apiKey: e.target.value })
+                  }
+                  placeholder="sk-..."
+                  className={`w-full px-3 py-2 rounded-xl font-mono border focus:outline-none focus:border-sky-500 ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-700 text-white'
+                      : 'bg-slate-50 border-slate-200 text-slate-900'
+                  }`}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-700/40">
+              <button
+                onClick={() => setShowAddProviderModal(false)}
+                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                取消
+              </button>
+              <button
+                onClick={handleConfirmAddProvider}
+                className="px-5 py-2 text-xs font-semibold rounded-xl bg-sky-500 hover:bg-sky-400 text-white shadow-md shadow-sky-500/20 cursor-pointer"
+              >
+                立即创建厂商
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL 2: TWO-TIER MODEL PICKER MODAL (Cherry Studio Style) */}
+      {/* ========================================================= */}
+      {showModelPickerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
+          <div
+            className={`w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden ${
+              isDark ? 'bg-[#0f172a] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
+            }`}
+          >
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-700/40 flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold flex items-center gap-2">
+                  <Cpu className="w-4 h-4 text-sky-500" />
+                  <span>管理【{selectedProvider.name}】模型池</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  勾选需要展示在主界面的模型（已选 {pickerSelectedModels.length} 款 / 全部 {allRemoteModels.length} 款）
+                </p>
+              </div>
+
+              <button
+                onClick={() => setShowModelPickerModal(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-200 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Search & Actions Bar */}
+            <div
+              className={`p-4 border-b flex items-center justify-between gap-3 ${
+                isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-slate-50 border-slate-200'
+              }`}
+            >
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={pickerSearchQuery}
+                  onChange={(e) => setPickerSearchQuery(e.target.value)}
+                  placeholder="搜索模型名称，如 flash, r1, deepseek..."
+                  className={`w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border focus:outline-none focus:border-sky-500 font-mono ${
+                    isDark
+                      ? 'bg-slate-900 border-slate-700 text-white'
+                      : 'bg-white border-slate-200 text-slate-900'
+                  }`}
+                />
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() =>
+                    setPickerSelectedModels(Array.from(new Set([...allRemoteModels])))
+                  }
+                  className="px-2.5 py-1 text-xs text-sky-500 hover:bg-sky-500/10 rounded-lg font-medium cursor-pointer"
+                >
+                  全选
+                </button>
+                <button
+                  onClick={() => setPickerSelectedModels([])}
+                  className="px-2.5 py-1 text-xs text-slate-400 hover:bg-slate-700/30 rounded-lg font-medium cursor-pointer"
+                >
+                  清空
+                </button>
+              </div>
+            </div>
+
+            {/* Model Checkbox List */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+              {filteredRemoteModels.length > 0 ? (
+                filteredRemoteModels.map((m) => {
+                  const isChecked = pickerSelectedModels.includes(m);
+                  return (
+                    <div
+                      key={m}
+                      onClick={() => {
+                        if (isChecked) {
+                          setPickerSelectedModels((prev) => prev.filter((item) => item !== m));
+                        } else {
+                          setPickerSelectedModels((prev) => [...prev, m]);
+                        }
+                      }}
+                      className={`flex items-center justify-between p-2.5 rounded-xl border text-xs font-mono cursor-pointer transition-colors ${
+                        isChecked
+                          ? isDark
+                            ? 'bg-sky-950/40 border-sky-500/50 text-white'
+                            : 'bg-sky-50 border-sky-300 text-sky-900 font-medium'
+                          : isDark
+                          ? 'bg-slate-900/30 border-slate-800 text-slate-300 hover:bg-slate-800/40'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="truncate">{m}</span>
+                      <div className="shrink-0 ml-3">
+                        {isChecked ? (
+                          <CheckSquare className="w-4 h-4 text-sky-500" />
+                        ) : (
+                          <Square className="w-4 h-4 text-slate-400" />
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="p-8 text-center text-xs text-slate-400">
+                  {fetchingModels ? '正在从服务商拉取模型列表中...' : '未搜索到匹配的模型'}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-700/40 flex items-center justify-between">
+              <span className="text-xs text-slate-400">
+                已勾选 {pickerSelectedModels.length} 个模型
+              </span>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => setShowModelPickerModal(false)}
+                  className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-slate-200 cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={handleSavePickedModels}
+                  className="px-5 py-2 text-xs font-semibold rounded-xl bg-sky-500 hover:bg-sky-400 text-white shadow-md shadow-sky-500/20 cursor-pointer"
+                >
+                  保存精选模型
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -81,7 +81,7 @@ export async function fetchRemoteModels(config: {
     throw new Error('远程接口已连通，但返回的模型列表为空。');
   }
 
-  return modelIds.sort();
+  return Array.from(new Set(modelIds)).sort();
 }
 
 /**
@@ -152,43 +152,22 @@ export async function testProviderConnection(config: {
   }
 }
 
-/**
- * Generate structured video summary using the active provider configuration.
- */
-export async function generateVideoSummary(params: {
-  bvid: string;
-  cid: string;
-  title: string;
-  subtitles: BiliRawSubtitleItem[];
-  provider: ProviderConfig;
-  model?: string;
-}): Promise<VideoSummaryResult> {
-  const { bvid, cid, title, subtitles, provider, model } = params;
-
-  if (!provider.apiKey) {
-    throw new Error(`厂商【${provider.name}】未配置 API Key，请打开设置中心填入 Key。`);
-  }
-
-  const chunks = chunkSubtitles(subtitles, { maxDurationSeconds: 25, maxCharCount: 200 });
-  const formattedTranscript = formatTranscriptForPrompt(chunks);
-
-  const userPrompt = `
-【视频标题】：${title}
-【视频字幕】：
-${formattedTranscript}
-`.trim();
-
-  const endpoint = formatBaseUrl(provider.baseUrl, 'chat/completions');
-  const targetModel = model || provider.selectedModel || provider.models[0] || 'deepseek-chat';
+async function executeSingleChatCompletion(params: {
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  userPrompt: string;
+}): Promise<string> {
+  const { endpoint, apiKey, model, userPrompt } = params;
 
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${provider.apiKey}`,
+      Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: targetModel,
+      model,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userPrompt },
@@ -204,27 +183,111 @@ ${formattedTranscript}
       const errJson = JSON.parse(errorBody);
       if (errJson?.error?.message) {
         if (response.status === 402 || errJson.error.message.toLowerCase().includes('insufficient balance')) {
-          throw new Error('账户余额不足 (Insufficient Balance)，请前往服务商平台充值，或在插件设置中切换其他服务商。');
+          throw new Error('账户余额不足 (Insufficient Balance)');
         }
         if (response.status === 401) {
-          throw new Error('API Key 无效或未授权 (401 Unauthorized)，请检查输入的 Key 是否正确。');
+          throw new Error('API Key 无效或未授权 (401 Unauthorized)');
         }
-        throw new Error(`LLM 服务报错: ${errJson.error.message}`);
+        throw new Error(`LLM 报错 (${model}): ${errJson.error.message}`);
       }
     } catch (e: any) {
-      if (e?.message?.includes('账户余额不足') || e?.message?.includes('API Key 无效') || e?.message?.includes('LLM 服务报错')) {
+      if (
+        e?.message?.includes('账户余额不足') ||
+        e?.message?.includes('API Key 无效') ||
+        e?.message?.includes('LLM 报错')
+      ) {
         throw e;
       }
     }
-    throw new Error(`LLM API 请求失败 (HTTP ${response.status}): ${errorBody || response.statusText}`);
+    throw new Error(`请求失败 (HTTP ${response.status}): ${errorBody || response.statusText}`);
   }
 
   const data = await response.json();
   const rawContent = data.choices?.[0]?.message?.content;
-
   if (!rawContent) {
-    throw new Error('LLM 返回内容为空');
+    throw new Error(`模型 ${model} 返回内容为空`);
+  }
+  return rawContent;
+}
+
+/**
+ * Generate structured video summary with automatic Fallback failover strategy.
+ */
+export async function generateVideoSummary(params: {
+  bvid: string;
+  cid: string;
+  title: string;
+  subtitles: BiliRawSubtitleItem[];
+  provider: ProviderConfig;
+  model?: string;
+  enableFallback?: boolean;
+}): Promise<VideoSummaryResult> {
+  const { bvid, cid, title, subtitles, provider, model, enableFallback = true } = params;
+
+  if (!provider.apiKey) {
+    throw new Error(`厂商【${provider.name}】未配置 API Key，请打开设置中心填入 Key。`);
   }
 
-  return parseLLMSummaryOutput(rawContent, { bvid, cid, title });
+  const chunks = chunkSubtitles(subtitles, { maxDurationSeconds: 25, maxCharCount: 200 });
+  const formattedTranscript = formatTranscriptForPrompt(chunks);
+
+  const userPrompt = `
+【视频标题】：${title}
+【视频字幕】：
+${formattedTranscript}
+`.trim();
+
+  const endpoint = formatBaseUrl(provider.baseUrl, 'chat/completions');
+  const primaryModel =
+    model || provider.selectedModel || provider.models[0] || 'deepseek-chat';
+
+  // Determine fallback model candidate
+  const fallbackCandidate =
+    provider.fallbackModel && provider.fallbackModel !== primaryModel
+      ? provider.fallbackModel
+      : provider.models.find((m) => m !== primaryModel);
+
+  try {
+    const rawContent = await executeSingleChatCompletion({
+      endpoint,
+      apiKey: provider.apiKey,
+      model: primaryModel,
+      userPrompt,
+    });
+
+    const parsed = parseLLMSummaryOutput(rawContent, { bvid, cid, title });
+    return {
+      ...parsed,
+      usedModel: primaryModel,
+      isFallbackUsed: false,
+    };
+  } catch (primaryErr: any) {
+    // If fallback is enabled and candidate model is available, attempt failover!
+    if (enableFallback && fallbackCandidate) {
+      console.warn(
+        `[BiliFlow Failover] 主模型【${primaryModel}】请求失败 (${primaryErr.message})，正在自动切换兜底模型【${fallbackCandidate}】...`
+      );
+      try {
+        const fallbackContent = await executeSingleChatCompletion({
+          endpoint,
+          apiKey: provider.apiKey,
+          model: fallbackCandidate,
+          userPrompt,
+        });
+
+        const parsed = parseLLMSummaryOutput(fallbackContent, { bvid, cid, title });
+        return {
+          ...parsed,
+          usedModel: fallbackCandidate,
+          isFallbackUsed: true,
+        };
+      } catch (fallbackErr: any) {
+        throw new Error(
+          `主模型(${primaryModel})与兜底模型(${fallbackCandidate})均请求失败: ${fallbackErr.message}`
+        );
+      }
+    }
+
+    throw primaryErr;
+  }
 }
