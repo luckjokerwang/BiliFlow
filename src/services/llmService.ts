@@ -28,9 +28,11 @@ const SYSTEM_PROMPT = `
 `.trim();
 
 function formatBaseUrl(rawUrl: string, path: string): string {
-  let clean = rawUrl.replace(/\/+$/, '');
+  let clean = (rawUrl || '').trim().replace(/\/+$/, '');
+  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
+    throw new Error(`API 接口地址格式错误: "${rawUrl || '(空)'}"。必须以 https:// 或 http:// 开头`);
+  }
   if (!clean.endsWith('/v1') && !clean.endsWith('/v4') && !clean.endsWith('/openai')) {
-    // If user provided root domain e.g. https://api.deepseek.com
     clean = `${clean}/v1`;
   }
   return `${clean}/${path.replace(/^\/+/, '')}`;
@@ -62,6 +64,9 @@ export async function fetchRemoteModels(config: {
 
   if (!response.ok) {
     const errText = await response.text().catch(() => '');
+    if (response.status === 401) {
+      throw new Error('API Key 无效或未授权 (401 Unauthorized)，请检查 Key 是否填写正确。');
+    }
     throw new Error(`获取模型列表失败 (HTTP ${response.status}): ${errText || response.statusText}`);
   }
 
@@ -76,7 +81,6 @@ export async function fetchRemoteModels(config: {
     throw new Error('远程返回的模型列表为空。');
   }
 
-  // Sort models alphabetically
   return modelIds.sort();
 }
 
@@ -113,10 +117,25 @@ export async function testProviderConnection(config: {
 
     if (!response.ok) {
       const errText = await response.text().catch(() => '');
+      let friendlyMsg = `HTTP ${response.status}: ${errText || response.statusText}`;
+
+      try {
+        const errJson = JSON.parse(errText);
+        if (errJson?.error?.message) {
+          if (response.status === 402 || errJson.error.message.toLowerCase().includes('insufficient balance')) {
+            friendlyMsg = '账户余额不足 (Insufficient Balance)，请前往服务商充值或更换 Key。';
+          } else if (response.status === 401) {
+            friendlyMsg = 'API Key 无效 (401 Unauthorized)，请检查 Key 是否正确。';
+          } else {
+            friendlyMsg = `错误: ${errJson.error.message}`;
+          }
+        }
+      } catch (_) {}
+
       return {
         success: false,
         latencyMs,
-        error: `HTTP ${response.status}: ${errText || response.statusText}`,
+        error: friendlyMsg,
       };
     }
 
@@ -145,7 +164,7 @@ export async function generateVideoSummary(params: {
   const { bvid, cid, title, subtitles, provider, model } = params;
 
   if (!provider.apiKey) {
-    throw new Error(`厂商【${provider.name}】未配置 API Key，请打开设置面板填入 Key。`);
+    throw new Error(`厂商【${provider.name}】未配置 API Key，请点击浏览器插件图标打开设置中心填入 Key。`);
   }
 
   const chunks = chunkSubtitles(subtitles, { maxDurationSeconds: 25, maxCharCount: 200 });
@@ -179,6 +198,22 @@ ${formattedTranscript}
 
   if (!response.ok) {
     const errorBody = await response.text().catch(() => '');
+    try {
+      const errJson = JSON.parse(errorBody);
+      if (errJson?.error?.message) {
+        if (response.status === 402 || errJson.error.message.toLowerCase().includes('insufficient balance')) {
+          throw new Error('账户余额不足 (Insufficient Balance)，请前往服务商平台充值，或在插件设置中切换其他服务商（如 SiliconFlow 赠送额度或 Gemini 免费层）。');
+        }
+        if (response.status === 401) {
+          throw new Error('API Key 无效或未授权 (401 Unauthorized)，请检查输入的 Key 是否正确。');
+        }
+        throw new Error(`LLM 服务报错: ${errJson.error.message}`);
+      }
+    } catch (e: any) {
+      if (e?.message?.includes('账户余额不足') || e?.message?.includes('API Key 无效') || e?.message?.includes('LLM 服务报错')) {
+        throw e;
+      }
+    }
     throw new Error(`LLM API 请求失败 (HTTP ${response.status}): ${errorBody || response.statusText}`);
   }
 

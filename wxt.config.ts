@@ -38,6 +38,11 @@ export default defineConfig({
         '48': 'icons/icon-48.png',
         '128': 'icons/icon-128.png',
       },
+      default_popup: 'popup.html',
+    },
+    options_ui: {
+      page: 'options.html',
+      open_in_tab: true,
     },
   },
 });
