@@ -413,9 +413,11 @@ export const App: React.FC = () => {
           {/* Header Brand + Theme Switch */}
           <div className="flex items-center justify-between px-1 py-1">
             <div className="flex items-center gap-3">
-              <div className="p-2 rounded-2xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white shadow-md shadow-sky-500/20">
-                <Zap className="w-5 h-5 fill-current" />
-              </div>
+              <img
+                src="/icons/icon-48.png"
+                alt="BiliFlow Logo"
+                className="w-8 h-8 rounded-xl object-contain shadow-sm"
+              />
               <div>
                 <h1
                   className={`text-base font-bold tracking-tight flex items-center gap-1.5 ${

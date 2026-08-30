@@ -1,18 +1,18 @@
-# ⚡ BiliFlow (极速心流)
-
 <div align="center">
 
-<img src="src/public/icons/icon-128.png" alt="BiliFlow Logo" width="96" height="96" />
+<img src="public/icons/icon-128.png" alt="BiliFlow Logo" width="112" height="112" />
 
-### **无需鼠标、不占屏幕，快捷键一键呼出 HUD 并毫秒级跳转核心亮点的 B 站 AI 助手**
+# ⚡ BiliFlow (极速心流)
 
-[![Version](https://img.shields.io/badge/version-0.3.1-sky.svg?style=flat-square)](https://github.com/luckjokerwang/BiliFlow/releases)
+### **无需鼠标、不占屏幕 · 键盘流一键呼出 HUD 毫秒级直达亮点的 B 站 AI 助手**
+
+[![Version](https://img.shields.io/badge/version-0.3.1-00AEEC.svg?style=flat-square)](https://github.com/luckjokerwang/BiliFlow/releases)
 [![Manifest V3](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/)
 [![Firefox MV2/MV3](https://img.shields.io/badge/Firefox%20Addon-Supported-orange.svg?style=flat-square)](https://addons.mozilla.org/)
 [![License](https://img.shields.io/badge/license-MIT-emerald.svg?style=flat-square)](LICENSE)
 [![Vitest](https://img.shields.io/badge/Tests-100%25%20Passed-brightgreen.svg?style=flat-square)](https://vitest.dev/)
 
-[English Docs](#-english-overview) · [功能特性](#-核心功能特性) · [快捷键速查](#-键盘流全景速查) · [安装指南](#-安装与使用指南) · [本地开发](#-本地开发与构建)
+[English Docs](#-english-overview) · [核心特性](#-核心功能特性) · [快捷键速查](#-键盘流全景速查) · [安装指南](#-安装与使用指南) · [本地开发](#-本地开发与构建)
 
 </div>
 

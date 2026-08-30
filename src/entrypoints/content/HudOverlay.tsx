@@ -394,9 +394,11 @@ export const HudOverlay: React.FC = () => {
           }`}
         >
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-xl bg-sky-500/15 text-sky-500">
-              <Zap className="w-4 h-4 fill-current" />
-            </div>
+            <img
+              src={typeof chrome !== 'undefined' && chrome.runtime?.getURL ? chrome.runtime.getURL('icons/icon-48.png') : '/icons/icon-48.png'}
+              alt="BiliFlow Logo"
+              className="w-6 h-6 rounded-lg object-contain shadow-sm"
+            />
             <div>
               <div className="flex items-center gap-2">
                 <span
@@ -448,7 +450,7 @@ export const HudOverlay: React.FC = () => {
         </div>
 
         {/* Content Body */}
-        <div className="p-4 max-h-[70vh] overflow-y-auto space-y-3.5">
+        <div className="p-4 max-h-[70vh] overflow-y-auto scroll-smooth space-y-3.5">
           {loading && (
             <div className="py-10 flex flex-col items-center justify-center gap-3 text-slate-400">
               <Loader2 className="w-7 h-7 animate-spin text-sky-500" />

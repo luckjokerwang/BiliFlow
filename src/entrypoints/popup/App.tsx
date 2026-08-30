@@ -118,9 +118,11 @@ export const App: React.FC = () => {
         }`}
       >
         <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white shadow-md shadow-sky-500/20">
-            <Zap className="w-4 h-4 fill-current" />
-          </div>
+          <img
+            src="/icons/icon-48.png"
+            alt="BiliFlow Logo"
+            className="w-7 h-7 rounded-lg object-contain shadow-sm"
+          />
           <div>
             <h1
               className={`text-sm font-bold flex items-center gap-1.5 ${
