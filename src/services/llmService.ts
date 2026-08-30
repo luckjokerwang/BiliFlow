@@ -54,34 +54,47 @@ export async function fetchRemoteModels(config: {
   }
 
   const endpoint = formatBaseUrl(baseUrl, 'models');
-  const response = await fetch(endpoint, {
-    method: 'GET',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      Accept: 'application/json',
-    },
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '');
-    if (response.status === 401) {
-      throw new Error('API Key 无效或未授权 (401 Unauthorized)，请检查 Key 是否正确。');
+  try {
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => '');
+      if (response.status === 401) {
+        throw new Error('API Key 无效或未授权 (401 Unauthorized)，请检查 Key 是否正确。');
+      }
+      throw new Error(`获取模型列表失败 (HTTP ${response.status}): ${errText || response.statusText}`);
     }
-    throw new Error(`获取模型列表失败 (HTTP ${response.status}): ${errText || response.statusText}`);
+
+    const data = await response.json();
+    const rawList = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
+
+    const modelIds = rawList
+      .map((item: any) => (typeof item === 'string' ? item : item?.id || item?.name))
+      .filter((id: any) => typeof id === 'string' && id.trim().length > 0);
+
+    if (modelIds.length === 0) {
+      throw new Error('远程接口已连通，但返回的模型列表为空。');
+    }
+
+    return Array.from(new Set(modelIds)).sort();
+  } catch (err: any) {
+    if (err?.name === 'AbortError') {
+      throw new Error('获取模型列表超时 (12s)，请检查网络连接或接口地址是否正确。');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
   }
-
-  const data = await response.json();
-  const rawList = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
-
-  const modelIds = rawList
-    .map((item: any) => (typeof item === 'string' ? item : item?.id || item?.name))
-    .filter((id: any) => typeof id === 'string' && id.trim().length > 0);
-
-  if (modelIds.length === 0) {
-    throw new Error('远程接口已连通，但返回的模型列表为空。');
-  }
-
-  return Array.from(new Set(modelIds)).sort();
 }
 
 /**
@@ -98,6 +111,9 @@ export async function testProviderConnection(config: {
   }
 
   const startTime = performance.now();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 12000);
+
   try {
     const endpoint = formatBaseUrl(baseUrl, 'chat/completions');
     const targetModel = model || 'deepseek-chat';
@@ -113,6 +129,7 @@ export async function testProviderConnection(config: {
         messages: [{ role: 'user', content: 'hi' }],
         max_tokens: 2,
       }),
+      signal: controller.signal,
     });
 
     const latencyMs = Math.round(performance.now() - startTime);
@@ -144,11 +161,20 @@ export async function testProviderConnection(config: {
     return { success: true, latencyMs };
   } catch (err: any) {
     const latencyMs = Math.round(performance.now() - startTime);
+    if (err?.name === 'AbortError') {
+      return {
+        success: false,
+        latencyMs,
+        error: '网络请求超时 (12s)。若测试海外模型 (如 OpenAI/Gemini)，请检查网络代理；若为本地模型 (如 Ollama)，请确认服务已启动。',
+      };
+    }
     return {
       success: false,
       latencyMs,
       error: err?.message || '网络连接超时或无法访问该地址 (Failed to fetch)',
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 

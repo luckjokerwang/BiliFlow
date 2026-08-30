@@ -6,7 +6,7 @@
 
 ### **无需鼠标、不占屏幕，快捷键一键呼出 HUD 并毫秒级跳转核心亮点的 B 站 AI 助手**
 
-[![Version](https://img.shields.io/badge/version-0.3.0-sky.svg?style=flat-square)](https://github.com/luckjokerwang/BiliFlow/releases)
+[![Version](https://img.shields.io/badge/version-0.3.1-sky.svg?style=flat-square)](https://github.com/luckjokerwang/BiliFlow/releases)
 [![Manifest V3](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/)
 [![Firefox MV2/MV3](https://img.shields.io/badge/Firefox%20Addon-Supported-orange.svg?style=flat-square)](https://addons.mozilla.org/)
 [![License](https://img.shields.io/badge/license-MIT-emerald.svg?style=flat-square)](LICENSE)
