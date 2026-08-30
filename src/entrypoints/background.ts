@@ -17,9 +17,36 @@ export default defineBackground(() => {
     if (!data.user_settings) {
       await chrome.storage.local.set({ user_settings: DEFAULT_SETTINGS });
     } else {
-      const old = data.user_settings;
+      const old: UserSettings = data.user_settings;
       if (!old.providers || !Array.isArray(old.providers)) {
         await chrome.storage.local.set({ user_settings: DEFAULT_SETTINGS });
+      } else {
+        // Clean legacy hardcoded models from preset providers if never fetched
+        let needsUpdate = false;
+        const cleanedProviders = old.providers.map((p) => {
+          if (!p.remoteModels || p.remoteModels.length === 0) {
+            if ((p.models && p.models.length > 0) || p.selectedModel || p.fallbackModel) {
+              needsUpdate = true;
+              return {
+                ...p,
+                models: [],
+                remoteModels: [],
+                selectedModel: '',
+                fallbackModel: '',
+              };
+            }
+          }
+          return p;
+        });
+
+        if (needsUpdate) {
+          await chrome.storage.local.set({
+            user_settings: {
+              ...old,
+              providers: cleanedProviders,
+            },
+          });
+        }
       }
     }
   });

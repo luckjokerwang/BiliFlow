@@ -26,7 +26,6 @@ import {
   CheckSquare,
   Square,
   X,
-  Sparkles,
 } from 'lucide-react';
 import { ProviderConfig, UserSettings, ExtensionResponse, ThemeMode } from '../../types';
 import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../../constants';
@@ -42,39 +41,56 @@ interface TestResultMap {
   };
 }
 
+// Ensure clean slate: if a provider has never fetched remote models, its models pool must be empty
+function migrateCleanSlate(settings: UserSettings): UserSettings {
+  let modified = false;
+  const cleanedProviders = (settings.providers || []).map((p) => {
+    // If provider has no remoteModels recorded (never fetched via API), purge any old hardcoded models
+    if (!p.remoteModels || p.remoteModels.length === 0) {
+      if ((p.models && p.models.length > 0) || p.selectedModel || p.fallbackModel) {
+        modified = true;
+        return {
+          ...p,
+          models: [],
+          remoteModels: [],
+          selectedModel: '',
+          fallbackModel: '',
+        };
+      }
+    }
+    return p;
+  });
+
+  if (modified) {
+    return {
+      ...settings,
+      providers: cleanedProviders,
+    };
+  }
+  return settings;
+}
+
 export const App: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
   const [activeTab, setActiveTab] = useState<TabType>('providers');
-  const [selectedProviderId, setSelectedProviderId] = useState<string>('sensenova');
+  const [selectedProviderId, setSelectedProviderId] = useState<string>('deepseek');
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
-  const [testing, setTesting] = useState<boolean>(false);
+  
+  // Isolated async status per provider ID
+  const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
+  const [fetchingProviderId, setFetchingProviderId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<TestResultMap>({});
-  const [fetchingModels, setFetchingModels] = useState<boolean>(false);
+
   const [savedToast, setSavedToast] = useState<string | null>(null);
   const [recordingKey, setRecordingKey] = useState<boolean>(false);
   const [importJsonText, setImportJsonText] = useState<string>('');
 
-  // Modals
-  const [showAddProviderModal, setShowAddProviderModal] = useState<boolean>(false);
-  const [newProviderForm, setNewProviderForm] = useState<{
-    id: string;
-    name: string;
-    baseUrl: string;
-    apiKey: string;
-    icon: string;
-  }>({
-    id: '',
-    name: '',
-    baseUrl: 'https://api.openai.com/v1',
-    apiKey: '',
-    icon: '⚡',
-  });
-
+  // Model Picker Modal State
   const [showModelPickerModal, setShowModelPickerModal] = useState<boolean>(false);
   const [pickerSearchQuery, setPickerSearchQuery] = useState<string>('');
   const [pickerSelectedModels, setPickerSelectedModels] = useState<string[]>([]);
 
-  // Load Settings on Mount
+  // Load & Migrate Settings on Mount
   useEffect(() => {
     (async () => {
       try {
@@ -82,9 +98,17 @@ export const App: React.FC = () => {
           type: 'GET_SETTINGS',
         });
         if (res.success && res.data) {
-          setSettings(res.data);
-          if (res.data.activeProviderId) {
-            setSelectedProviderId(res.data.activeProviderId);
+          const cleaned = migrateCleanSlate(res.data);
+          setSettings(cleaned);
+          if (cleaned.activeProviderId) {
+            setSelectedProviderId(cleaned.activeProviderId);
+          }
+          // If cleaned legacy models, persist cleaned state
+          if (cleaned !== res.data) {
+            await chrome.runtime.sendMessage({
+              type: 'SAVE_SETTINGS',
+              payload: cleaned,
+            });
           }
         }
       } catch (e) {
@@ -142,7 +166,8 @@ export const App: React.FC = () => {
 
   // Test Provider Connection (Ping) with ISOLATED state per provider
   const handleTestConnection = async () => {
-    setTesting(true);
+    const currentId = selectedProvider.id;
+    setTestingProviderId(currentId);
     try {
       const res: ExtensionResponse<{
         success: boolean;
@@ -153,19 +178,19 @@ export const App: React.FC = () => {
         payload: {
           baseUrl: selectedProvider.baseUrl,
           apiKey: selectedProvider.apiKey,
-          model: selectedProvider.selectedModel || selectedProvider.models[0],
+          model: selectedProvider.selectedModel || (selectedProvider.models && selectedProvider.models[0]),
         },
       });
 
       if (res.success && res.data) {
         setTestResults((prev) => ({
           ...prev,
-          [selectedProvider.id]: res.data,
+          [currentId]: res.data,
         }));
       } else {
         setTestResults((prev) => ({
           ...prev,
-          [selectedProvider.id]: {
+          [currentId]: {
             success: false,
             latencyMs: 0,
             error: res.error || '测试请求失败',
@@ -175,27 +200,28 @@ export const App: React.FC = () => {
     } catch (e: any) {
       setTestResults((prev) => ({
         ...prev,
-        [selectedProvider.id]: {
+        [currentId]: {
           success: false,
           latencyMs: 0,
           error: e?.message || '网络连接超时或无法访问该地址',
         },
       }));
     } finally {
-      setTesting(false);
+      setTestingProviderId((prev) => (prev === currentId ? null : prev));
     }
   };
 
   // Open Model Picker & Pull Models from API
   const handleOpenModelPicker = async (forceFetch = false) => {
-    setPickerSelectedModels([...selectedProvider.models]);
+    const currentId = selectedProvider.id;
+    setPickerSelectedModels([...(selectedProvider.models || [])]);
     setShowModelPickerModal(true);
 
     if (forceFetch || !selectedProvider.remoteModels || selectedProvider.remoteModels.length === 0) {
       if (!selectedProvider.apiKey) {
         return;
       }
-      setFetchingModels(true);
+      setFetchingProviderId(currentId);
       try {
         const res: ExtensionResponse<string[]> = await chrome.runtime.sendMessage({
           type: 'FETCH_PROVIDER_MODELS',
@@ -210,7 +236,7 @@ export const App: React.FC = () => {
           updateSelectedProvider({
             remoteModels: fetched,
             models:
-              selectedProvider.models.length > 0
+              selectedProvider.models && selectedProvider.models.length > 0
                 ? selectedProvider.models
                 : fetched.slice(0, 3),
             selectedModel:
@@ -219,14 +245,16 @@ export const App: React.FC = () => {
               selectedProvider.fallbackModel || fetched[1] || fetched[0],
           });
           setPickerSelectedModels(
-            selectedProvider.models.length > 0 ? selectedProvider.models : fetched.slice(0, 3)
+            selectedProvider.models && selectedProvider.models.length > 0
+              ? selectedProvider.models
+              : fetched.slice(0, 3)
           );
           triggerToast(`成功获取 ${fetched.length} 个可用模型！`);
         }
       } catch (err: any) {
         console.error('Fetch models error:', err);
       } finally {
-        setFetchingModels(false);
+        setFetchingProviderId((prev) => (prev === currentId ? null : prev));
       }
     }
   };
@@ -250,57 +278,29 @@ export const App: React.FC = () => {
       fallbackModel: nextFallback,
     });
     setShowModelPickerModal(false);
-    triggerToast(`已保存 ${pickerSelectedModels.length} 款模型至前端模型池`);
+    triggerToast(`已精选保存 ${pickerSelectedModels.length} 款模型至前端`);
   };
 
-  // Add Custom Provider Handler
-  const handleConfirmAddProvider = () => {
-    const id = newProviderForm.id.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_');
-    const name = newProviderForm.name.trim();
-    const baseUrl = newProviderForm.baseUrl.trim();
-
-    if (!id) {
-      alert('请填写厂商唯一 ID（仅支持小写字母/数字/下划线）');
-      return;
-    }
-    if (!name) {
-      alert('请填写厂商显示名称');
-      return;
-    }
-    if (!baseUrl) {
-      alert('请填写 API Base URL');
-      return;
-    }
-    if (settings.providers.some((p) => p.id === id)) {
-      alert(`已存在 ID 为 ${id} 的厂商，请更换一个唯一 ID`);
-      return;
-    }
-
+  // Add Custom Provider Directly (Inline without Pop-up Modal)
+  const handleAddCustomProvider = () => {
+    const newId = `custom_${Date.now()}`;
     const newProvider: ProviderConfig = {
-      id,
-      name,
-      baseUrl,
-      apiKey: newProviderForm.apiKey.trim(),
+      id: newId,
+      name: '',
+      baseUrl: '',
+      apiKey: '',
       enabled: true,
       models: [],
       remoteModels: [],
       selectedModel: '',
       fallbackModel: '',
       isCustom: true,
-      icon: newProviderForm.icon || '⚡',
+      icon: '⚡',
     };
 
     const updated = [...settings.providers, newProvider];
-    setSelectedProviderId(id);
-    saveSettings({ ...settings, providers: updated }, `已成功创建厂商【${name}】`);
-    setShowAddProviderModal(false);
-    setNewProviderForm({
-      id: '',
-      name: '',
-      baseUrl: 'https://api.openai.com/v1',
-      apiKey: '',
-      icon: '⚡',
-    });
+    setSelectedProviderId(newId);
+    saveSettings({ ...settings, providers: updated }, '已创建自定义厂商，请直接在右侧填写配置');
   };
 
   // Delete Provider
@@ -309,7 +309,7 @@ export const App: React.FC = () => {
     const updated = settings.providers.filter((p) => p.id !== pId);
     let nextActiveId = settings.activeProviderId;
     if (nextActiveId === pId) {
-      nextActiveId = updated[0]?.id || 'sensenova';
+      nextActiveId = updated[0]?.id || 'deepseek';
     }
     setSelectedProviderId(nextActiveId);
     saveSettings(
@@ -379,6 +379,8 @@ export const App: React.FC = () => {
     }
   };
 
+  const isCurrentTesting = testingProviderId === selectedProvider.id;
+  const isCurrentFetching = fetchingProviderId === selectedProvider.id;
   const activeTestResult = testResults[selectedProvider.id];
   const allRemoteModels = selectedProvider.remoteModels || selectedProvider.models || [];
   const filteredRemoteModels = allRemoteModels.filter((m) =>
@@ -422,7 +424,7 @@ export const App: React.FC = () => {
                 >
                   BiliFlow
                   <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                    v0.3.1
+                    v0.3.0
                   </span>
                 </h1>
                 <p className="text-[11px] text-slate-400">极速心流 · 模型工作台</p>
@@ -498,7 +500,7 @@ export const App: React.FC = () => {
               <div className="flex items-center justify-between px-1 text-[11px] font-semibold text-slate-400">
                 <span>厂商列表 ({settings.providers.length})</span>
                 <button
-                  onClick={() => setShowAddProviderModal(true)}
+                  onClick={handleAddCustomProvider}
                   className="flex items-center gap-1 text-sky-500 hover:text-sky-400 font-medium transition-colors cursor-pointer"
                   title="添加自定义大模型厂商"
                 >
@@ -511,6 +513,7 @@ export const App: React.FC = () => {
                 {settings.providers.map((p) => {
                   const isSelected = p.id === selectedProvider.id;
                   const isActive = p.id === settings.activeProviderId;
+                  const displayName = p.name || (p.isCustom ? '未命名自定义厂商' : p.id);
 
                   return (
                     <div
@@ -532,7 +535,7 @@ export const App: React.FC = () => {
                         </div>
                         <div className="truncate">
                           <div className="font-medium truncate flex items-center gap-1.5">
-                            {p.name}
+                            {displayName}
                             {isActive && (
                               <span className="text-[9px] font-mono px-1 rounded bg-emerald-500/20 text-emerald-500 font-bold">
                                 当前
@@ -595,29 +598,34 @@ export const App: React.FC = () => {
                   : 'bg-white border-slate-200 shadow-slate-100'
               }`}
             >
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-1 min-w-0">
                 <div
-                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner border ${
+                  className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-inner border shrink-0 ${
                     isDark
                       ? 'bg-slate-800/90 border-slate-700 text-white'
                       : 'bg-slate-50 border-slate-200'
                   }`}
                 >
-                  <ProviderLogo providerId={selectedProvider.id} icon={selectedProvider.icon} className="w-7 h-7" />
+                  <ProviderLogo
+                    providerId={selectedProvider.id}
+                    icon={selectedProvider.icon}
+                    className="w-7 h-7"
+                  />
                 </div>
-                <div>
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-3">
                     <input
                       type="text"
                       disabled={!selectedProvider.isCustom}
                       value={selectedProvider.name}
                       onChange={(e) => updateSelectedProvider({ name: e.target.value })}
-                      className={`text-lg font-bold bg-transparent border-b border-transparent hover:border-slate-400 focus:border-sky-500 focus:outline-none transition-colors ${
+                      placeholder={selectedProvider.isCustom ? '点击输入自定义厂商名称...' : '厂商名称'}
+                      className={`text-lg font-bold bg-transparent border-b border-transparent hover:border-slate-400 focus:border-sky-500 focus:outline-none transition-colors truncate max-w-sm ${
                         isDark ? 'text-white' : 'text-slate-900'
                       }`}
                     />
                     {selectedProvider.id === settings.activeProviderId ? (
-                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-500 border border-emerald-500/20">
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-500 border border-emerald-500/20 shrink-0">
                         <Check className="w-3.5 h-3.5" /> 正在使用
                       </span>
                     ) : (
@@ -629,13 +637,13 @@ export const App: React.FC = () => {
                               activeProviderId: selectedProvider.id,
                               activeModel:
                                 selectedProvider.selectedModel ||
-                                selectedProvider.models[0] ||
+                                (selectedProvider.models && selectedProvider.models[0]) ||
                                 '',
                             },
-                            `已将【${selectedProvider.name}】设为当前使用`
+                            `已将【${selectedProvider.name || selectedProvider.id}】设为当前使用`
                           )
                         }
-                        className={`px-3 py-1 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
+                        className={`px-3 py-1 text-xs font-semibold rounded-xl border transition-all cursor-pointer shrink-0 ${
                           isDark
                             ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
                             : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
@@ -656,7 +664,7 @@ export const App: React.FC = () => {
                   href={selectedProvider.docUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-1 text-xs font-semibold px-3.5 py-1.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-500 transition-colors"
+                  className="flex items-center gap-1 text-xs font-semibold px-3.5 py-1.5 rounded-xl bg-sky-500/10 hover:bg-sky-500/20 text-sky-500 transition-colors shrink-0 ml-3"
                 >
                   <span>获取 Key / 官网</span>
                   <ExternalLink className="w-3 h-3" />
@@ -728,11 +736,11 @@ export const App: React.FC = () => {
                       onChange={(e) =>
                         updateSelectedProvider({ baseUrl: e.target.value.trim() })
                       }
-                      placeholder="https://token.sensenova.cn/v1"
+                      placeholder="https://api.openai.com/v1 或 http://localhost:11434/v1"
                       className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
                         isDark
                           ? 'bg-slate-900/90 border-slate-700/80 text-white placeholder-slate-500'
-                            : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+                          : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
                       }`}
                     />
                   </div>
@@ -742,15 +750,15 @@ export const App: React.FC = () => {
                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 pt-1">
                   <button
                     onClick={handleTestConnection}
-                    disabled={testing || !selectedProvider.apiKey}
+                    disabled={isCurrentTesting || !selectedProvider.apiKey}
                     className={`flex items-center justify-center gap-2 px-5 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
                       isDark
                         ? 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700 disabled:opacity-40'
                         : 'bg-slate-100 hover:bg-slate-200 text-slate-800 border-slate-200 disabled:opacity-40'
                     }`}
                   >
-                    <Activity className={`w-3.5 h-3.5 ${testing ? 'animate-spin' : ''}`} />
-                    <span>{testing ? '正在测试连接中...' : '测试连通性 (Ping)'}</span>
+                    <Activity className={`w-3.5 h-3.5 ${isCurrentTesting ? 'animate-spin' : ''}`} />
+                    <span>{isCurrentTesting ? '正在测试连接中...' : '测试连通性 (Ping)'}</span>
                   </button>
 
                   {activeTestResult && (
@@ -800,21 +808,23 @@ export const App: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => handleOpenModelPicker(true)}
-                      disabled={fetchingModels || !selectedProvider.apiKey}
+                      disabled={isCurrentFetching || !selectedProvider.apiKey}
                       className="flex items-center gap-1.5 px-3.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-500 text-xs font-semibold rounded-xl border border-sky-500/30 transition-all cursor-pointer disabled:opacity-40"
                     >
                       <RefreshCw
-                        className={`w-3.5 h-3.5 ${fetchingModels ? 'animate-spin' : ''}`}
+                        className={`w-3.5 h-3.5 ${isCurrentFetching ? 'animate-spin' : ''}`}
                       />
-                      <span>{fetchingModels ? '拉取中...' : '自动拉取模型列表'}</span>
+                      <span>{isCurrentFetching ? '拉取中...' : '自动拉取模型列表'}</span>
                     </button>
 
-                    <button
-                      onClick={() => handleOpenModelPicker(false)}
-                      className="flex items-center gap-1 px-3.5 py-1.5 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-xs font-medium rounded-xl border border-slate-700/60 transition-all cursor-pointer"
-                    >
-                      <span>管理 / 勾选模型池</span>
-                    </button>
+                    {selectedProvider.models && selectedProvider.models.length > 0 && (
+                      <button
+                        onClick={() => handleOpenModelPicker(false)}
+                        className="flex items-center gap-1 px-3.5 py-1.5 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-xs font-medium rounded-xl border border-slate-700/60 transition-all cursor-pointer"
+                      >
+                        <span>管理 / 勾选模型池</span>
+                      </button>
+                    )}
                   </div>
                 </div>
 
@@ -832,7 +842,7 @@ export const App: React.FC = () => {
                       onChange={(e) =>
                         updateSelectedProvider({ selectedModel: e.target.value.trim() })
                       }
-                      placeholder="如 sensenova-6.7-flash-lite"
+                      placeholder="请先拉取模型或在此手动输入模型名"
                       className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
                         isDark
                           ? 'bg-slate-900/90 border-slate-700/80 text-white placeholder-slate-500'
@@ -855,7 +865,7 @@ export const App: React.FC = () => {
                       onChange={(e) =>
                         updateSelectedProvider({ fallbackModel: e.target.value.trim() })
                       }
-                      placeholder="如 SenseChat-5"
+                      placeholder="可选，故障时自动切换的备用模型名"
                       className={`w-full px-3.5 py-2.5 rounded-xl text-xs font-mono border focus:outline-none focus:border-sky-500 transition-colors ${
                         isDark
                           ? 'bg-slate-900/90 border-slate-700/80 text-white placeholder-slate-500'
@@ -938,13 +948,21 @@ export const App: React.FC = () => {
                         );
                       })
                     ) : (
-                      <div className="p-4 text-center text-xs text-slate-400 w-full flex flex-col items-center justify-center gap-1.5">
-                        <p>当前尚未选择任何模型</p>
+                      <div className="p-6 text-center text-xs text-slate-400 w-full flex flex-col items-center justify-center gap-2">
+                        <Cpu className="w-6 h-6 text-slate-500 opacity-60" />
+                        <p className="font-medium text-slate-300">当前厂商尚未选择任何模型</p>
+                        <p className="text-[11px] text-slate-400 max-w-sm">
+                          请在上方填入 API Key，然后点击【⚡ 自动拉取模型列表】一键拉取并勾选需要的模型，避免过时模型污染界面。
+                        </p>
                         <button
                           onClick={() => handleOpenModelPicker(true)}
-                          className="text-sky-500 hover:underline font-semibold"
+                          disabled={!selectedProvider.apiKey}
+                          className="mt-1 inline-flex items-center gap-1.5 px-4 py-1.5 bg-sky-500/15 hover:bg-sky-500/25 disabled:opacity-40 text-sky-400 text-xs font-semibold rounded-xl border border-sky-500/30 transition-all cursor-pointer"
                         >
-                          点击拉取并勾选可用模型
+                          <RefreshCw
+                            className={`w-3.5 h-3.5 ${isCurrentFetching ? 'animate-spin' : ''}`}
+                          />
+                          <span>{isCurrentFetching ? '正在拉取中...' : '点击拉取并勾选可用模型'}</span>
                         </button>
                       </div>
                     )}
@@ -1158,10 +1176,10 @@ export const App: React.FC = () => {
 
             <div className="p-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 space-y-3">
               <h2 className="text-sm font-semibold text-rose-500">重置出厂配置</h2>
-              <p className="text-xs text-rose-400">恢复出厂预设配置（将清空所有已填 Key）。</p>
+              <p className="text-xs text-rose-400">恢复出厂预设配置（将清空所有已填 Key 与自定义模型）。</p>
               <button
                 onClick={() => {
-                  if (confirm('确定要重置所有设置回初始状态吗？此操作将清除自定义 Key。')) {
+                  if (confirm('确定要重置所有设置回初始状态吗？此操作将清除自定义 Key 与模型池。')) {
                     saveSettings(DEFAULT_SETTINGS, '已恢复系统出厂设置');
                   }
                 }}
@@ -1175,119 +1193,7 @@ export const App: React.FC = () => {
       </div>
 
       {/* ========================================================= */}
-      {/* MODAL 1: ADD CUSTOM PROVIDER MODAL */}
-      {/* ========================================================= */}
-      {showAddProviderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
-          <div
-            className={`w-full max-w-lg rounded-2xl border p-6 space-y-5 shadow-2xl ${
-              isDark ? 'bg-[#0f172a] border-slate-800 text-slate-100' : 'bg-white border-slate-200 text-slate-800'
-            }`}
-          >
-            <div className="flex items-center justify-between border-b pb-3 border-slate-700/40">
-              <h3 className="text-base font-bold flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-sky-500" />
-                <span>添加自定义大模型厂商</span>
-              </h3>
-              <button
-                onClick={() => setShowAddProviderModal(false)}
-                className="p-1 rounded-lg text-slate-400 hover:text-slate-200 cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="space-y-3.5 text-xs">
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <label className="text-slate-400 font-medium">厂商唯一 ID (必填)</label>
-                  <input
-                    type="text"
-                    value={newProviderForm.id}
-                    onChange={(e) =>
-                      setNewProviderForm({ ...newProviderForm, id: e.target.value })
-                    }
-                    placeholder="如 my_ollama, sense_v2"
-                    className={`w-full px-3 py-2 rounded-xl font-mono border focus:outline-none focus:border-sky-500 ${
-                      isDark
-                        ? 'bg-slate-900 border-slate-700 text-white'
-                        : 'bg-slate-50 border-slate-200 text-slate-900'
-                    }`}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-slate-400 font-medium">显示名称 (必填)</label>
-                  <input
-                    type="text"
-                    value={newProviderForm.name}
-                    onChange={(e) =>
-                      setNewProviderForm({ ...newProviderForm, name: e.target.value })
-                    }
-                    placeholder="如 私有服务器 / 通义千问"
-                    className={`w-full px-3 py-2 rounded-xl border focus:outline-none focus:border-sky-500 ${
-                      isDark
-                        ? 'bg-slate-900 border-slate-700 text-white'
-                        : 'bg-slate-50 border-slate-200 text-slate-900'
-                    }`}
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-400 font-medium">API 接口地址 Base URL (必填)</label>
-                <input
-                  type="text"
-                  value={newProviderForm.baseUrl}
-                  onChange={(e) =>
-                    setNewProviderForm({ ...newProviderForm, baseUrl: e.target.value })
-                  }
-                  placeholder="https://api.openai.com/v1 或 http://localhost:11434/v1"
-                  className={`w-full px-3 py-2 rounded-xl font-mono border focus:outline-none focus:border-sky-500 ${
-                    isDark
-                      ? 'bg-slate-900 border-slate-700 text-white'
-                      : 'bg-slate-50 border-slate-200 text-slate-900'
-                  }`}
-                />
-              </div>
-
-              <div className="space-y-1">
-                <label className="text-slate-400 font-medium">API Key (选填)</label>
-                <input
-                  type="password"
-                  value={newProviderForm.apiKey}
-                  onChange={(e) =>
-                    setNewProviderForm({ ...newProviderForm, apiKey: e.target.value })
-                  }
-                  placeholder="sk-..."
-                  className={`w-full px-3 py-2 rounded-xl font-mono border focus:outline-none focus:border-sky-500 ${
-                    isDark
-                      ? 'bg-slate-900 border-slate-700 text-white'
-                      : 'bg-slate-50 border-slate-200 text-slate-900'
-                  }`}
-                />
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-700/40">
-              <button
-                onClick={() => setShowAddProviderModal(false)}
-                className="px-4 py-2 text-xs font-semibold rounded-xl text-slate-400 hover:text-slate-200 cursor-pointer"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleConfirmAddProvider}
-                className="px-5 py-2 text-xs font-semibold rounded-xl bg-sky-500 hover:bg-sky-400 text-white shadow-md shadow-sky-500/20 cursor-pointer"
-              >
-                立即创建厂商
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ========================================================= */}
-      {/* MODAL 2: TWO-TIER MODEL PICKER MODAL (Cherry Studio Style) */}
+      {/* TWO-TIER MODEL PICKER MODAL (Cherry Studio Style) */}
       {/* ========================================================= */}
       {showModelPickerModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-fade-in">
@@ -1301,7 +1207,7 @@ export const App: React.FC = () => {
               <div>
                 <h3 className="text-base font-bold flex items-center gap-2">
                   <Cpu className="w-4 h-4 text-sky-500" />
-                  <span>管理【{selectedProvider.name}】模型池</span>
+                  <span>管理【{selectedProvider.name || selectedProvider.id}】模型池</span>
                 </h3>
                 <p className="text-xs text-slate-400 mt-0.5">
                   勾选需要展示在主界面的模型（已选 {pickerSelectedModels.length} 款 / 全部 {allRemoteModels.length} 款）
@@ -1393,7 +1299,7 @@ export const App: React.FC = () => {
                 })
               ) : (
                 <div className="p-8 text-center text-xs text-slate-400">
-                  {fetchingModels ? '正在从服务商拉取模型列表中...' : '未搜索到匹配的模型'}
+                  {isCurrentFetching ? '正在从服务商拉取模型列表中...' : '未搜索到匹配的模型'}
                 </div>
               )}
             </div>
