@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Sparkles,
   Zap,
   Clock,
   ChevronRight,
@@ -22,12 +21,21 @@ import {
   BiliRawSubtitleItem,
   UserSettings,
   ThemeMode,
+  ResolvedVideoInfo,
 } from '../../types';
 import {
   extractVideoMeta,
   isUserTyping,
   seekToSeconds,
+  getVideoDuration,
 } from '../../utils/playerController';
+import {
+  calculateTimelineMarkers,
+} from '../../utils/timelineCalculator';
+import {
+  renderTimelineMarkers,
+  cleanupPlayerInjections,
+} from '../../utils/playerInjector';
 
 async function safeSendMessage<T = any>(
   msg: ExtensionMessage
@@ -94,32 +102,47 @@ export const HudOverlay: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [shortcutStr, setShortcutStr] = useState<string>('Alt+S');
   const [theme, setTheme] = useState<ThemeMode>('dark');
-  const currentBvidRef = useRef<string>('');
+  const currentVideoKeyRef = useRef<string>('');
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
-    setTimeout(() => setToastMsg(null), 2000);
+    setTimeout(() => setToastMsg(null), 2500);
   };
 
-  const handleOpenOptions = async () => {
-    await safeSendMessage({ type: 'OPEN_OPTIONS_PAGE' });
+  // Open settings page safely via Background
+  const handleOpenOptions = () => {
+    chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
+      window.open(chrome.runtime.getURL('options.html'));
+    });
   };
 
-  // Load custom settings & listen for live changes
+  // Load User Preferences on Mount
   useEffect(() => {
     (async () => {
-      const res = await safeSendMessage<UserSettings>({ type: 'GET_SETTINGS' });
-      if (res.success && res.data) {
-        if (res.data.shortcutToggle) setShortcutStr(res.data.shortcutToggle);
-        if (res.data.theme) setTheme(res.data.theme);
+      try {
+        const res = await safeSendMessage<UserSettings>({ type: 'GET_SETTINGS' });
+        if (res.success && res.data) {
+          if (res.data.shortcutToggle) {
+            setShortcutStr(res.data.shortcutToggle);
+          }
+          if (res.data.theme) {
+            setTheme(res.data.theme);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load settings in content script:', e);
       }
     })();
 
     const handleStorageChange = (changes: any) => {
       if (changes.user_settings?.newValue) {
-        const val: UserSettings = changes.user_settings.newValue;
-        if (val.shortcutToggle) setShortcutStr(val.shortcutToggle);
-        if (val.theme) setTheme(val.theme);
+        const newSettings: UserSettings = changes.user_settings.newValue;
+        if (newSettings.shortcutToggle) {
+          setShortcutStr(newSettings.shortcutToggle);
+        }
+        if (newSettings.theme) {
+          setTheme(newSettings.theme);
+        }
       }
     };
 
@@ -129,68 +152,63 @@ export const HudOverlay: React.FC = () => {
     }
   }, []);
 
-  // Fetch or generate summary for current video
+  // Fetch summary for current video (dynamically resolving exact bvid and cid)
   const loadSummaryForCurrentVideo = useCallback(async (forceRefresh = false) => {
     const meta = extractVideoMeta();
     if (!meta || !meta.bvid) {
-      setError('未检测到有效的 B 站视频页面');
+      setError('未检测到正在播放的 B 站视频');
       return;
     }
-
-    currentBvidRef.current = meta.bvid;
-    let cid = meta.cid;
-    let aid = meta.aid;
-    let title = meta.title;
 
     setLoading(true);
     setError(null);
 
     try {
-      if (!cid) {
-        const infoRes = await fetch(
-          `https://api.bilibili.com/x/web-interface/view?bvid=${meta.bvid}`
-        );
-        const infoData = await infoRes.json();
-        if (infoData.code === 0 && infoData.data) {
-          cid = String(infoData.data.cid);
-          aid = String(infoData.data.aid);
-          title = infoData.data.title || title;
-        }
+      // 1. Resolve exact video metadata (aid, cid, title, duration) via Background Service Worker
+      const resolveRes = await safeSendMessage<ResolvedVideoInfo>({
+        type: 'RESOLVE_VIDEO_INFO',
+        payload: { bvid: meta.bvid, pIndex: meta.pIndex },
+      });
+
+      if (!resolveRes.success || !resolveRes.data) {
+        throw new Error(resolveRes.error || '解析视频信息失败');
       }
 
-      if (!cid) {
-        throw new Error('未能获取当前视频的 CID 标识');
-      }
+      const { bvid, cid, aid, title } = resolveRes.data;
+      const videoKey = `${bvid}_p${meta.pIndex}_${cid}`;
+      currentVideoKeyRef.current = videoKey;
 
-      // Check cache first if not forced
+      // 2. Check cache first if not forced
       if (!forceRefresh) {
         const cachedRes = await safeSendMessage<VideoSummaryResult | null>({
           type: 'GET_CACHED_SUMMARY',
-          payload: { bvid: meta.bvid, cid },
+          payload: { bvid, cid },
         });
 
         if (cachedRes.success && cachedRes.data) {
-          setSummary(cachedRes.data);
-          setLoading(false);
-          return;
+          if (currentVideoKeyRef.current === videoKey) {
+            setSummary(cachedRes.data);
+            setLoading(false);
+            return;
+          }
         }
       }
 
-      // 1. Fetch subtitles via background
+      // 3. Fetch subtitles via background
       const subRes = await safeSendMessage<BiliRawSubtitleItem[]>({
         type: 'FETCH_SUBTITLES',
-        payload: { bvid: meta.bvid, cid, aid },
+        payload: { bvid, cid, aid },
       });
 
       if (!subRes.success || !subRes.data) {
         throw new Error(subRes.error || '获取字幕失败，该视频可能没有字幕。');
       }
 
-      // 2. Generate summary via LLM (with auto-fallback failover)
+      // 4. Generate summary via LLM (with auto-fallback failover)
       const sumRes = await safeSendMessage<VideoSummaryResult>({
         type: 'GENERATE_SUMMARY',
         payload: {
-          bvid: meta.bvid,
+          bvid,
           cid,
           title,
           subtitles: subRes.data,
@@ -201,9 +219,11 @@ export const HudOverlay: React.FC = () => {
         throw new Error(sumRes.error || '生成总结失败，请检查 API Key 配置。');
       }
 
-      setSummary(sumRes.data);
-      if (sumRes.data.isFallbackUsed) {
-        showToast(`⚡ 主模型异常，已自动启用兜底模型【${sumRes.data.usedModel}】完成提炼`);
+      if (currentVideoKeyRef.current === videoKey) {
+        setSummary(sumRes.data);
+        if (sumRes.data.isFallbackUsed) {
+          showToast(`⚡ 主模型异常，已自动启用兜底模型【${sumRes.data.usedModel}】完成提炼`);
+        }
       }
     } catch (err: any) {
       console.error('[BiliFlow] Error loading summary:', err);
@@ -213,16 +233,41 @@ export const HudOverlay: React.FC = () => {
     }
   }, []);
 
-  // Jump to specific highlight
+  // Jump to specific highlight (safe timestamp check)
   const handleJump = useCallback((highlight: HighlightItem, index: number) => {
     setSelectedIndex(index);
-    const success = seekToSeconds(highlight.timestamp);
+    const targetSeconds =
+      typeof highlight.timestamp === 'number'
+        ? highlight.timestamp
+        : (highlight.timestampSec ?? 0);
+
+    const success = seekToSeconds(targetSeconds);
     if (success) {
       showToast(`已直达: [${highlight.timestampStr}] ${highlight.title}`);
     }
   }, []);
 
-  // Monitor SPA route/video changes on Bilibili
+  // Synchronize Timeline Markers on Bilibili progress bar
+  useEffect(() => {
+    const updateMarkers = () => {
+      if (summary?.highlights && summary.highlights.length > 0) {
+        const duration = getVideoDuration();
+        if (duration > 0) {
+          const markers = calculateTimelineMarkers(summary.highlights, duration);
+          renderTimelineMarkers(markers, (sec) => {
+            seekToSeconds(sec);
+            showToast('已跳转至选定亮点');
+          });
+        }
+      }
+    };
+
+    updateMarkers();
+    const interval = setInterval(updateMarkers, 2000);
+    return () => clearInterval(interval);
+  }, [summary]);
+
+  // Monitor SPA route/collection/multi-P changes on Bilibili
   useEffect(() => {
     let lastUrl = window.location.href;
     const interval = setInterval(() => {
@@ -230,11 +275,15 @@ export const HudOverlay: React.FC = () => {
       if (currentUrl !== lastUrl) {
         lastUrl = currentUrl;
         const meta = extractVideoMeta();
-        if (meta?.bvid && meta.bvid !== currentBvidRef.current) {
-          setSummary(null);
-          setError(null);
-          if (isOpen) {
-            loadSummaryForCurrentVideo();
+        if (meta?.bvid) {
+          const newVideoKey = `${meta.bvid}_p${meta.pIndex}`;
+          if (!currentVideoKeyRef.current.startsWith(newVideoKey)) {
+            cleanupPlayerInjections();
+            setSummary(null);
+            setError(null);
+            if (isOpen) {
+              loadSummaryForCurrentVideo();
+            }
           }
         }
       }
@@ -243,14 +292,15 @@ export const HudOverlay: React.FC = () => {
     return () => clearInterval(interval);
   }, [isOpen, loadSummaryForCurrentVideo]);
 
-  // Global Keyboard Navigation
+  // Global Keyboard Navigation (Full Screen & Windowed)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (isUserTyping()) return;
 
-      // Toggle HUD with user-defined shortcut
+      // Toggle HUD
       if (matchesShortcut(e, shortcutStr)) {
         e.preventDefault();
+        e.stopPropagation();
         setIsOpen((prev) => {
           const next = !prev;
           if (next && !summary && !loading) {
@@ -261,144 +311,84 @@ export const HudOverlay: React.FC = () => {
         return;
       }
 
-      if (!isOpen) return;
+      if (!isOpen || !summary) return;
 
+      // Close on Escape
       if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation();
         setIsOpen(false);
         return;
       }
 
-      if (summary && summary.highlights.length > 0) {
-        // Direct number key jump (1 ~ 9)
-        const num = parseInt(e.key, 10);
-        if (!isNaN(num) && num >= 1 && num <= summary.highlights.length) {
+      // Fast jump by number 1~9
+      const num = parseInt(e.key, 10);
+      if (!isNaN(num) && num >= 1 && num <= 9) {
+        const targetIndex = num - 1;
+        if (targetIndex < summary.highlights.length) {
           e.preventDefault();
-          const target = summary.highlights[num - 1];
-          handleJump(target, num - 1);
+          e.stopPropagation();
+          handleJump(summary.highlights[targetIndex], targetIndex);
           return;
         }
+      }
 
-        // J/K or Up/Down
-        if (e.key === 'j' || e.key === 'J' || e.key === 'ArrowDown') {
-          e.preventDefault();
-          setSelectedIndex((prev) => {
-            const next = (prev + 1) % summary.highlights.length;
-            const target = summary.highlights[next];
-            seekToSeconds(target.timestamp);
-            showToast(`[${target.timestampStr}] ${target.title}`);
-            return next;
-          });
-          return;
-        }
-
-        if (e.key === 'k' || e.key === 'K' || e.key === 'ArrowUp') {
-          e.preventDefault();
-          setSelectedIndex((prev) => {
-            const next =
-              (prev - 1 + summary.highlights.length) % summary.highlights.length;
-            const target = summary.highlights[next];
-            seekToSeconds(target.timestamp);
-            showToast(`[${target.timestampStr}] ${target.title}`);
-            return next;
-          });
-          return;
-        }
-
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          const target = summary.highlights[selectedIndex];
-          if (target) {
-            handleJump(target, selectedIndex);
-          }
-          return;
-        }
+      // Up / Down / J / K navigation
+      if (e.key === 'ArrowDown' || e.key.toLowerCase() === 'j') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedIndex((prev) => {
+          const next = Math.min(prev + 1, summary.highlights.length - 1);
+          handleJump(summary.highlights[next], next);
+          return next;
+        });
+      } else if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        e.stopPropagation();
+        setSelectedIndex((prev) => {
+          const next = Math.max(prev - 1, 0);
+          handleJump(summary.highlights[next], next);
+          return next;
+        });
       }
     };
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [
-    isOpen,
-    summary,
-    loading,
-    selectedIndex,
-    shortcutStr,
-    handleJump,
-    loadSummaryForCurrentVideo,
-  ]);
+  }, [isOpen, summary, loading, shortcutStr, loadSummaryForCurrentVideo, handleJump]);
+
+  if (!isOpen) return null;
 
   const isDark = theme !== 'light';
 
-  // If HUD is closed, render subtle floating trigger pill
-  if (!isOpen) {
-    return (
-      <div className="fixed top-20 right-6 z-[999999]" aria-label="BiliFlow 快捷入口">
-        <button
-          onClick={() => {
-            setIsOpen(true);
-            if (!summary && !loading) {
-              loadSummaryForCurrentVideo();
-            }
-          }}
-          className={`group flex items-center gap-2 px-3.5 py-2 rounded-full shadow-xl backdrop-blur-md border transition-all duration-200 hover:scale-105 active:scale-95 cursor-pointer ${
-            isDark
-              ? 'bg-slate-900/85 hover:bg-slate-900/95 text-slate-200 border-slate-700/60'
-              : 'bg-white/90 hover:bg-white text-slate-800 border-slate-200 shadow-slate-200'
-          }`}
-          title={`点击或按 ${shortcutStr} 唤起 BiliFlow`}
-          aria-haspopup="dialog"
-        >
-          <Sparkles className="w-4 h-4 text-sky-500 group-hover:rotate-12 transition-transform duration-300" />
-          <span className="text-xs font-semibold tracking-wide">BiliFlow</span>
-          <kbd
-            className={`hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-mono rounded border ${
-              isDark
-                ? 'bg-slate-800 text-slate-300 border-slate-700'
-                : 'bg-slate-100 text-slate-600 border-slate-200'
-            }`}
-          >
-            {shortcutStr}
-          </kbd>
-        </button>
-      </div>
-    );
-  }
-
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="BiliFlow 极速导航浮层"
-      className="fixed top-16 right-6 z-[999999] w-[420px] max-w-[calc(100vw-3rem)] animate-scale-in"
-    >
+    <div className="fixed inset-0 pointer-events-none z-[2147483647] font-sans antialiased select-none">
+      {/* Toast Feedback */}
+      {toastMsg && (
+        <div className="fixed top-5 left-1/2 -translate-x-1/2 z-[2147483647] flex items-center gap-2 px-4 py-2 bg-sky-500 text-white text-xs font-semibold rounded-2xl shadow-xl shadow-sky-500/25 animate-fade-in pointer-events-auto">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{toastMsg}</span>
+        </div>
+      )}
+
+      {/* Floating HUD Card Container */}
       <div
-        className={`flex flex-col border rounded-2xl shadow-2xl backdrop-blur-2xl overflow-hidden transition-colors ${
+        className={`fixed top-14 right-6 w-[370px] sm:w-[410px] max-h-[85vh] flex flex-col rounded-2xl border shadow-2xl backdrop-blur-xl pointer-events-auto transition-all duration-200 overflow-hidden animate-fade-in ${
           isDark
-            ? 'bg-[#0f172a]/95 text-slate-100 border-slate-700/70'
-            : 'bg-white/95 text-slate-800 border-slate-200 shadow-slate-300'
+            ? 'bg-[#0f172a]/95 border-slate-700/80 text-slate-100 shadow-sky-950/40'
+            : 'bg-white/95 border-slate-200/90 text-slate-800 shadow-slate-300/60'
         }`}
       >
-        {/* Toast Notification Banner */}
-        {toastMsg && (
-          <div className="bg-sky-500 text-white text-[11px] font-semibold py-1.5 px-3 flex items-center justify-center gap-1.5 animate-fade-in shadow-inner">
-            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">{toastMsg}</span>
-          </div>
-        )}
-
         {/* Header */}
         <div
-          className={`flex items-center justify-between px-4 py-3 border-b ${
-            isDark ? 'border-slate-800 bg-slate-950/40' : 'border-slate-100 bg-slate-50/60'
+          className={`p-3.5 border-b flex items-center justify-between ${
+            isDark ? 'border-slate-800' : 'border-slate-100'
           }`}
         >
           <div className="flex items-center gap-2">
-            <img
-              src={typeof chrome !== 'undefined' && chrome.runtime?.getURL ? chrome.runtime.getURL('icons/icon-48.png') : '/icons/icon-48.png'}
-              alt="BiliFlow Logo"
-              className="w-6 h-6 rounded-lg object-contain shadow-sm"
-            />
+            <div className="p-1.5 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white shadow-md shadow-sky-500/20">
+              <Zap className="w-4 h-4 fill-current" />
+            </div>
             <div>
               <div className="flex items-center gap-2">
                 <span

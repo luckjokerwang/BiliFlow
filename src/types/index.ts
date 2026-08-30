@@ -34,8 +34,9 @@ export interface TranscriptChunk {
 }
 
 export interface HighlightItem {
-  id: number;
+  id: number | string;
   timestamp: number;     // In seconds
+  timestampSec?: number; // In seconds (alias for defensive compatibility)
   timestampStr: string;  // "mm:ss"
   title: string;         // Short headline (< 20 chars)
   keyPoint: string;      // 1-2 sentence core insight
@@ -53,23 +54,31 @@ export interface VideoSummaryResult {
   isFallbackUsed?: boolean;
 }
 
+export interface ResolvedVideoInfo {
+  bvid: string;
+  cid: string;
+  aid: string;
+  title: string;
+  duration: number;
+}
+
 // ------------------------------------------
 // Multi-Provider & Model Hub (Two-Tier Architecture)
 // ------------------------------------------
 
 export interface ProviderConfig {
-  id: string;              // Unique provider ID (e.g. 'deepseek', 'sensenova', 'custom-ollama')
-  name: string;            // Display name
-  baseUrl: string;         // Base URL (e.g. 'https://token.sensenova.cn/v1')
-  apiKey: string;          // API Key
+  id: string;            // 'deepseek', 'sensenova', 'openai', or custom ID
+  name: string;          // Human readable display name
+  baseUrl: string;       // API endpoint base URL
+  apiKey: string;        // User provided API Key (stored in local storage)
   enabled: boolean;
-  models: string[];        // User-curated active models shown in UI
-  remoteModels?: string[]; // Full list of models fetched from /v1/models (for picker modal)
-  selectedModel: string;   // Primary selected model
-  fallbackModel?: string;  // Fallback model if primary model fails
-  isCustom?: boolean;
-  docUrl?: string;
-  icon?: string;
+  models: string[];      // Curated/active models selected by user
+  remoteModels?: string[]; // Full list of models fetched from provider /v1/models
+  selectedModel: string; // Active model for summary generation
+  fallbackModel?: string; // Fallback disaster-recovery model
+  isCustom?: boolean;    // Whether user-created custom provider
+  docUrl?: string;       // Link to get API Key / documentation
+  icon?: string;         // Emoji or custom icon tag
 }
 
 export type ThemeMode = 'dark' | 'light';
@@ -77,54 +86,35 @@ export type ThemeMode = 'dark' | 'light';
 export interface UserSettings {
   providers: ProviderConfig[];
   activeProviderId: string;
-  activeModel: string;
-  enableFallback: boolean; // Auto failover to fallback model on failure
-  fallbackProviderId?: string;
-  shortcutToggle: string;  // e.g. 'Alt+S' or 'Ctrl+Shift+B'
-  theme: ThemeMode;        // 'dark' | 'light'
+  activeModel?: string;
+  enableFallback?: boolean;
+  autoFetch?: boolean;
+  shortcutToggle?: string;
+  theme?: ThemeMode;
 }
 
 // ------------------------------------------
-// Manifest V3 Typed Message Protocol
+// Message Passing Contracts
 // ------------------------------------------
 
-export type ExtensionMessage =
-  | {
-      type: 'FETCH_SUBTITLES';
-      payload: { bvid: string; cid: string; aid?: string };
-    }
-  | {
-      type: 'GENERATE_SUMMARY';
-      payload: {
-        bvid: string;
-        cid: string;
-        title: string;
-        subtitles: BiliRawSubtitleItem[];
-      };
-    }
-  | {
-      type: 'GET_CACHED_SUMMARY';
-      payload: { bvid: string; cid: string };
-    }
-  | {
-      type: 'GET_SETTINGS';
-    }
-  | {
-      type: 'SAVE_SETTINGS';
-      payload: Partial<UserSettings>;
-    }
-  | {
-      type: 'FETCH_PROVIDER_MODELS';
-      payload: { baseUrl: string; apiKey: string };
-    }
-  | {
-      type: 'TEST_PROVIDER_CONNECTION';
-      payload: { baseUrl: string; apiKey: string; model?: string };
-    }
-  | {
-      type: 'OPEN_OPTIONS_PAGE';
-    };
+export type MessageType =
+  | 'RESOLVE_VIDEO_INFO'
+  | 'FETCH_SUBTITLES'
+  | 'GENERATE_SUMMARY'
+  | 'GET_SETTINGS'
+  | 'SAVE_SETTINGS'
+  | 'GET_CACHED_SUMMARY'
+  | 'TEST_PROVIDER_CONNECTION'
+  | 'FETCH_PROVIDER_MODELS'
+  | 'OPEN_OPTIONS_PAGE';
 
-export type ExtensionResponse<T = any> =
-  | { success: true; data: T }
-  | { success: false; error: string; code?: string };
+export interface ExtensionMessage<T = any> {
+  type: MessageType;
+  payload?: T;
+}
+
+export interface ExtensionResponse<T = any> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}

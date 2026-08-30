@@ -1,5 +1,5 @@
 import { defineBackground } from 'wxt/sandbox';
-import { ExtensionMessage, ExtensionResponse, UserSettings } from '../types';
+import { ExtensionMessage, ExtensionResponse, UserSettings, ResolvedVideoInfo } from '../types';
 import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../constants';
 import { fetchBilibiliSubtitles } from '../services/bilibiliApi';
 import {
@@ -61,6 +61,52 @@ export default defineBackground(() => {
       (async () => {
         try {
           switch (message.type) {
+            case 'RESOLVE_VIDEO_INFO': {
+              const { bvid, pIndex = 1 } = message.payload;
+              const res = await fetch(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`, {
+                headers: {
+                  Accept: 'application/json',
+                  'User-Agent':
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                },
+              });
+              if (!res.ok) {
+                throw new Error(`获取视频信息失败: HTTP ${res.status}`);
+              }
+              const json = await res.json();
+              if (json.code !== 0 || !json.data) {
+                throw new Error(`B站接口返回错误 (${json.code}): ${json.message || '未知错误'}`);
+              }
+
+              const aid = String(json.data.aid || '');
+              let cid = '';
+              let title = json.data.title || '';
+              let duration = json.data.duration || 0;
+
+              const pages = json.data.pages || [];
+              if (Array.isArray(pages) && pages.length > 0) {
+                const targetPage = pages[pIndex - 1] || pages[0];
+                cid = String(targetPage.cid);
+                duration = targetPage.duration || duration;
+                if (targetPage.part && pages.length > 1) {
+                  title = `${title} - ${targetPage.part}`;
+                }
+              } else {
+                cid = String(json.data.cid || '');
+              }
+
+              const resolved: ResolvedVideoInfo = {
+                bvid,
+                cid,
+                aid,
+                title,
+                duration,
+              };
+
+              sendResponse({ success: true, data: resolved });
+              break;
+            }
+
             case 'FETCH_SUBTITLES': {
               const subtitles = await fetchBilibiliSubtitles(message.payload);
               sendResponse({ success: true, data: subtitles });

@@ -6,13 +6,13 @@
 
 ### **无需鼠标、不占屏幕 · 键盘流一键呼出 HUD 毫秒级直达亮点的 B 站 AI 助手**
 
-[![Version](https://img.shields.io/badge/version-0.3.1-00AEEC.svg?style=flat-square)](https://github.com/luckjokerwang/BiliFlow/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-00AEEC.svg?style=flat-square)](https://github.com/luckjokerwang/BiliFlow/releases)
 [![Manifest V3](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/)
 [![Firefox MV2/MV3](https://img.shields.io/badge/Firefox%20Addon-Supported-orange.svg?style=flat-square)](https://addons.mozilla.org/)
 [![License](https://img.shields.io/badge/license-MIT-emerald.svg?style=flat-square)](LICENSE)
 [![Vitest](https://img.shields.io/badge/Tests-100%25%20Passed-brightgreen.svg?style=flat-square)](https://vitest.dev/)
 
-[English Docs](#-english-overview) · [核心特性](#-核心功能特性) · [快捷键速查](#-键盘流全景速查) · [安装指南](#-安装与使用指南) · [本地开发](#-本地开发与构建)
+[核心特性](#-核心功能特性) · [快捷键速查](#-键盘流全景速查) · [安装指南](#-安装与使用指南) · [本地开发](#-本地开发与构建) · [隐私安全](#-隐私与安全承诺-privacy--security)
 
 </div>
 
@@ -22,9 +22,11 @@
 
 传统视频总结扩展往往采用 **侧边栏占用大量屏幕空间**、**强迫鼠标反复点击** 或 **死板的长篇大论**，严重打断看视频的沉浸状态。
 
-**BiliFlow** 遵循 **Keyboard-First** 交互哲学：
-* **心流零打扰**：按下快捷键呼出半透明悬浮 HUD，看完按 `Esc` 瞬间退场；
+**BiliFlow** 遵循 **Keyboard-First** 交互哲学与深度原生融合：
+* **心流零打扰**：按下快捷键（`Alt + S` / 自定义）呼出半透明悬浮 HUD，看完按 `Esc` 瞬间退场；
 * **数字键秒切**：提炼出的核心亮点对应 `1~9` 数字键，一键跳转到对应精彩画面；
+* **进度条发光打点**：AI 提炼的亮点同步投影至 B 站原生进度条上，悬停预览，点击直达；
+* **全屏模式全贯通**：在普通窗口、网页全屏以及原生全屏下，快捷键均可直接唤起 HUD 并无缝跳播；
 * **真正的 BYOK (自带 Key)**：数据 100% 留存在本地 Chrome Storage，零第三方服务端中转。
 
 ---
@@ -32,28 +34,37 @@
 ## ✨ 核心功能特性
 
 ### 1. ⌨️ 全键盘流精准导航 (Keyboard-First Navigation)
-* **全局唤起**：默认 `Alt + S`（支持自定义录制，如 `Alt + B`、`Ctrl + Shift + S` 等）；
+* **全局唤起**：默认 `Alt + S`（支持自定义录制，如 `Alt + F`、`Ctrl + Shift + S` 等）；
 * **亮点直达**：按键盘数字键 `1` ~ `9`，毫秒级跳跃至该亮点开始的画面；
 * **上下翻阅**：按 `J` / `K` 或 `↑` / `↓` 顺畅切换上一个 / 下一个节点；
 * **闪电退场**：按 `Esc` 立即隐藏浮层，观影完全不中断。
 
-### 2. 🔮 沉浸式 HUD 悬浮层 (Shadow DOM 强隔离)
-* 基于 Web Components **Shadow DOM** 技术，CSS 样式与 B 站原生播放器 100% 隔离；
-* 完美兼容 B 站 **网页全屏**、**全屏播放**、**宽屏模式** 与 **分 P / 播放列表** 自动切换；
-* 智能焦点检测：在评论区打字、发弹幕或输入搜索时，自动屏蔽快捷键，防误触。
+### 2. ⏱️ B 站播放器原生时间轴发光打点 (Timeline Highlight Markers)
+* **智能锚点投影**：自动将 AI 提炼的各亮点时间戳按视频总时长映射为进度条发光锚点（`0.8% ~ 99.2%` 精准分布）；
+* **悬停预览气泡**：鼠标移动到打点上即可浮现预览卡片（显示序号、起播时间与亮点标题）；
+* **点击精准跳播**：点击发光打点直接调用底层播放器 Seek，无需打开完整 HUD。
 
-### 3. 🤖 多模型支持与 Cherry Studio 级模型池架构
+### 3. 🖥️ 全屏模式 (Native Fullscreen) 深度集成
+* **动态挂载宿主**：基于 Web Components **Shadow DOM** 技术，全屏切换时自动挂载至全屏根节点（`.bpx-player-container` / `document.fullscreenElement`）；
+* **全屏极速唤起**：即使在全屏沉浸观影模式下，按下快捷键 HUD 依然毫秒级浮现，`1~9` 数字键与 `J/K` 键盘流完全畅通无阻。
+
+### 4. 🎬 视频合集 / 播放列表 / 多 P 视频权威精准解析
+* **后台专属消息通道**：每次唤起总结时，通过 Background Service Worker 权威直连 B 站官方接口，根据真实 URL 与 `?p=...` 参数抓取当前视频专属的 `cid` 与对应分 P 标题；
+* **彻底杜绝串台**：单视频、多 P 连播、UP 主合集列表无缝兼容，100% 匹配当前正在播放的画面内容。
+
+### 5. 🤖 多模型支持与 Cherry Studio 级模型池架构
 * **内置 9 大主流官方品牌支持**（配备 100% 官方正版矢量 SVG Logo）：
   * **DeepSeek (官方)** / **SenseNova (商汤日日新)** / **Google Gemini** / **SiliconFlow (硅基流动)** / **OpenAI** / **Moonshot AI (Kimi)** / **智谱 GLM** / **Ollama (本地私有)** / **OpenRouter**；
-* **两级模型池设计**：从服务商 `/v1/models` 一键拉取全量模型后，提供**模型管理选择器**，仅保留你勾选的几款精选模型，杜绝上百款模型污染界面；
+* **两级纯净模型池**：从服务商 `/v1/models` 一键远程拉取后，提供**模型选择器**，仅保留勾选的精选模型，初始状态 0 废弃模型残留；
 * **支持任意自定义厂商**：自由配置私有 ID、名称、自定义端点 (Base URL) 与 API Key。
 
-### 4. 🛡️ 智能容灾故障转移策略 (Fallback Failover)
+### 6. 🛡️ 智能容灾故障转移策略 (Fallback Failover)
 * 支持为每个服务商配置 **主用提炼模型 (Primary)** 与 **兜底备用模型 (Fallback)**；
 * 当主用模型遭遇限流 (429)、余额不足 (402) 或服务器超时时，后台**自动无感切换至备用模型重试**，并在 HUD 浮层右上角醒目标记，保证总结永不卡壳。
 
-### 5. 🌓 柔和护眼双模式 (Soft Light & Dark)
-* 告别刺眼的纯白与粗糙暗色，提供 **Soft Paper 护眼暖白** 与 **深邃暗夜** 双主题，右上角一键切换。
+### 7. 🌓 柔和护眼双模式与极简隐形滚动条
+* 提供 **Soft Paper 护眼暖白** 与 **深邃暗夜** 双主题；
+* HUD 浮层与设置中心注入极简隐形滚动条（Invisible Scrollbar），消除突兀滑槽，保留 100% 流畅滚动。
 
 ---
 
@@ -65,7 +76,7 @@
 | `1` ~ `9` | **秒级直达亮点** | 瞬时跳转到对应提炼节点的精确起播时间戳 |
 | `J` / `K` 或 `↓` / `↑` | **切换亮点节点** | 在提取出的各个核心观点之间快速轮转 |
 | `Enter` / `Space` | **确认跳转** | 播放选中的高亮片段 |
-| `Esc` | **瞬间退场** | 退出浮层，恢复全屏沉浸观影 |
+| `Esc` | **瞬间退场** | 退出浮层，恢复沉浸观影 |
 
 ---
 
@@ -73,9 +84,9 @@
 
 ### 方法一：从 Releases 下载安装包（推荐）
 
-1. 前往 [Releases](https://github.com/luckjokerwang/BiliFlow/releases) 下载最新版本的压缩包：
-   * **Chrome / Edge / Chromium 内核浏览器**：下载 `biliflow-x.x.x-chrome.zip`；
-   * **Firefox 浏览器**：下载 `biliflow-x.x.x-firefox.zip`。
+1. 前往 [Releases](https://github.com/luckjokerwang/BiliFlow/releases) 下载最新 `v1.0.0` 压缩包：
+   * **Chrome / Edge / Chromium 内核浏览器**：下载 `biliflow-1.0.0-chrome.zip`；
+   * **Firefox 浏览器**：下载 `biliflow-1.0.0-firefox.zip`。
 2. 解压下载的 `.zip` 文件；
 3. 打开浏览器扩展管理页面：
    * **Chrome**: 访问 `chrome://extensions/`，右上角开启 **“开发者模式”**，点击 **“加载已解压的扩展程序”**，选择解压出的目录；
@@ -87,7 +98,7 @@
 
 ## 🛠️ 本地开发与构建
 
-本项目使用现代化扩展开发框架 [WXT](https://wxt.dev/) 构建，遵循 **Spec-Driven Development (SDD)** 规范与严苛的单元测试。
+本项目使用现代化扩展开发框架 [WXT](https://wxt.dev/) 构建，遵循 **Spec-Driven Development (SDD)** 规范与严苛的自动化测试。
 
 ```bash
 # 1. 克隆代码仓库
