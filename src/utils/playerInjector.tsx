@@ -12,14 +12,19 @@ import { browser } from 'wxt/browser';
 let markersRoot: ReactDOM.Root | null = null;
 let markersHostEl: HTMLElement | null = null;
 
-function getCssLinkHtml(): string {
+function injectCssLink(shadow: ShadowRoot): void {
   const cssUrl =
     typeof browser !== 'undefined' && browser.runtime?.getURL
       ? browser.runtime.getURL('content-scripts/content.css')
       : typeof chrome !== 'undefined' && chrome.runtime?.getURL
       ? chrome.runtime.getURL('content-scripts/content.css')
       : '';
-  return cssUrl ? `<link rel="stylesheet" href="${cssUrl}">` : '';
+  if (cssUrl) {
+    const linkEl = document.createElement('link');
+    linkEl.rel = 'stylesheet';
+    linkEl.href = cssUrl;
+    shadow.appendChild(linkEl);
+  }
 }
 
 /**
@@ -45,7 +50,7 @@ export function renderTimelineMarkers(
       try {
         markersRoot.unmount();
       } catch (e) {}
-      markersRoot = null;
+        markersRoot = null;
     }
 
     markersHostEl = document.createElement('div');
@@ -59,7 +64,7 @@ export function renderTimelineMarkers(
     const wrapper = document.createElement('div');
     wrapper.style.position = 'absolute';
     wrapper.style.inset = '0';
-    shadow.innerHTML = getCssLinkHtml();
+    injectCssLink(shadow);
     shadow.appendChild(wrapper);
 
     target.appendChild(markersHostEl);

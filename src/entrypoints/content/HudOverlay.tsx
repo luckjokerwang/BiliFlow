@@ -12,6 +12,7 @@ import {
   Settings,
   RotateCcw,
   ShieldCheck,
+  FileText,
 } from 'lucide-react';
 import {
   ExtensionMessage,
@@ -23,7 +24,6 @@ import {
   ThemeMode,
   ResolvedVideoInfo,
 } from '../../types';
-import { browser } from 'wxt/browser';
 import {
   extractVideoMeta,
   isUserTyping,
@@ -41,14 +41,14 @@ import {
 async function safeSendMessage<T = any>(
   msg: ExtensionMessage
 ): Promise<ExtensionResponse<T>> {
-  if (!browser.runtime?.id) {
+  if (!chrome.runtime?.id) {
     return {
       success: false,
       error: 'BiliFlow 扩展已更新或重载。请按 F5 刷新此网页即可恢复使用。',
     };
   }
   try {
-    const res = await browser.runtime.sendMessage(msg);
+    const res = await chrome.runtime.sendMessage(msg);
     return res;
   } catch (err: any) {
     const errMsg = err?.message || String(err);
@@ -104,6 +104,10 @@ export const HudOverlay: React.FC = () => {
   const [shortcutStr, setShortcutStr] = useState<string>('Alt+S');
   const [theme, setTheme] = useState<ThemeMode>('dark');
   const currentVideoKeyRef = useRef<string>('');
+  
+  // Dedicated container and item refs for rock-solid programmatic scroll
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -112,17 +116,47 @@ export const HudOverlay: React.FC = () => {
 
   // Open settings page safely via Background
   const handleOpenOptions = () => {
-    browser.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
-      window.open(browser.runtime.getURL('options.html'));
+    chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
+      window.open(chrome.runtime.getURL('options.html'));
     });
   };
+
+  // Programmatically scroll the active highlight card to the center of view
+  const scrollToActiveItem = useCallback((index: number) => {
+    requestAnimationFrame(() => {
+      const container = scrollContainerRef.current;
+      const targetEl = itemRefs.current[index];
+      if (!container || !targetEl) return;
+
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = targetEl.getBoundingClientRect();
+
+      const relativeTop = targetRect.top - containerRect.top + container.scrollTop;
+      const targetScrollTop = Math.max(
+        0,
+        relativeTop - container.clientHeight / 2 + targetEl.clientHeight / 2
+      );
+
+      container.scrollTo({
+        top: targetScrollTop,
+        behavior: 'smooth',
+      });
+    });
+  }, []);
+
+  // Follow selection changes and center the active card
+  useEffect(() => {
+    if (selectedIndex >= 0 && summary?.highlights) {
+      scrollToActiveItem(selectedIndex);
+    }
+  }, [selectedIndex, summary, scrollToActiveItem]);
 
   // Load User Preferences on Mount
   useEffect(() => {
     (async () => {
       try {
         const res = await safeSendMessage<UserSettings>({ type: 'GET_SETTINGS' });
-        if (res && res.success && res.data) {
+        if (res.success && res.data) {
           if (res.data.shortcutToggle) {
             setShortcutStr(res.data.shortcutToggle);
           }
@@ -147,22 +181,26 @@ export const HudOverlay: React.FC = () => {
       }
     };
 
-    if (browser.storage?.onChanged) {
-      browser.storage.onChanged.addListener(handleStorageChange);
-      return () => browser.storage.onChanged.removeListener(handleStorageChange);
+    if (chrome.storage?.onChanged) {
+      chrome.storage.onChanged.addListener(handleStorageChange);
+      return () => chrome.storage.onChanged.removeListener(handleStorageChange);
     }
   }, []);
 
-  // Fetch summary for current video (dynamically resolving exact bvid and cid)
+  // Fetch summary for current video (strictly clean previous cache on start/error)
   const loadSummaryForCurrentVideo = useCallback(async (forceRefresh = false) => {
     const meta = extractVideoMeta();
     if (!meta || !meta.bvid) {
+      setSummary(null);
       setError('未检测到正在播放的 B 站视频');
       return;
     }
 
-    setLoading(true);
+    // Immediately clear previous video's summary and state
+    setSummary(null);
     setError(null);
+    setLoading(true);
+    setSelectedIndex(0);
 
     try {
       // 1. Resolve exact video metadata (aid, cid, title, duration) via Background Service Worker
@@ -202,7 +240,7 @@ export const HudOverlay: React.FC = () => {
       });
 
       if (!subRes.success || !subRes.data) {
-        throw new Error(subRes.error || '获取字幕失败，该视频可能没有字幕。');
+        throw new Error(subRes.error || '该视频未包含任何官方字幕或 AI 生成字幕，无法提炼要点。');
       }
 
       // 4. Generate summary via LLM (with auto-fallback failover)
@@ -228,6 +266,7 @@ export const HudOverlay: React.FC = () => {
       }
     } catch (err: any) {
       console.error('[BiliFlow] Error loading summary:', err);
+      setSummary(null);
       setError(err?.message || '处理发生异常');
     } finally {
       setLoading(false);
@@ -237,6 +276,8 @@ export const HudOverlay: React.FC = () => {
   // Jump to specific highlight (safe timestamp check)
   const handleJump = useCallback((highlight: HighlightItem, index: number) => {
     setSelectedIndex(index);
+    scrollToActiveItem(index);
+
     const targetSeconds =
       typeof highlight.timestamp === 'number'
         ? highlight.timestamp
@@ -246,7 +287,7 @@ export const HudOverlay: React.FC = () => {
     if (success) {
       showToast(`已直达: [${highlight.timestampStr}] ${highlight.title}`);
     }
-  }, []);
+  }, [scrollToActiveItem]);
 
   // Synchronize Timeline Markers on Bilibili progress bar
   useEffect(() => {
@@ -260,6 +301,8 @@ export const HudOverlay: React.FC = () => {
             showToast('已跳转至选定亮点');
           });
         }
+      } else {
+        cleanupPlayerInjections();
       }
     };
 
@@ -282,6 +325,7 @@ export const HudOverlay: React.FC = () => {
             cleanupPlayerInjections();
             setSummary(null);
             setError(null);
+            setSelectedIndex(0);
             if (isOpen) {
               loadSummaryForCurrentVideo();
             }
@@ -440,8 +484,11 @@ export const HudOverlay: React.FC = () => {
           </div>
         </div>
 
-        {/* Content Body */}
-        <div className="p-4 max-h-[70vh] overflow-y-auto scroll-smooth space-y-3.5">
+        {/* Content Body - with dedicated scrollContainerRef */}
+        <div
+          ref={scrollContainerRef}
+          className="p-4 max-h-[70vh] overflow-y-auto scroll-smooth space-y-3.5"
+        >
           {loading && (
             <div className="py-10 flex flex-col items-center justify-center gap-3 text-slate-400">
               <Loader2 className="w-7 h-7 animate-spin text-sky-500" />
@@ -460,9 +507,9 @@ export const HudOverlay: React.FC = () => {
               }`}
             >
               <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-              <div className="text-xs space-y-1.5 min-w-0">
-                <p className="font-semibold text-rose-500">获取失败</p>
-                <p className="opacity-90 leading-relaxed break-all">{error}</p>
+              <div className="text-xs space-y-1.5 min-w-0 flex-1">
+                <p className="font-semibold text-rose-500">无法生成总结</p>
+                <p className="opacity-90 leading-relaxed break-words">{error}</p>
                 {error.includes('刷新') ? (
                   <button
                     onClick={() => window.location.reload()}
@@ -470,6 +517,11 @@ export const HudOverlay: React.FC = () => {
                   >
                     <RotateCcw className="w-3 h-3" /> 立即按 F5 刷新网页
                   </button>
+                ) : error.includes('字幕') ? (
+                  <div className="pt-1 text-[11px] text-slate-400 flex items-center gap-1">
+                    <FileText className="w-3 h-3 text-slate-400" />
+                    <span>提示：该视频没有外挂字幕/AI字幕，仅有UP压制的画面硬字幕</span>
+                  </div>
                 ) : (
                   <button
                     onClick={handleOpenOptions}
@@ -511,6 +563,9 @@ export const HudOverlay: React.FC = () => {
                     return (
                       <div
                         key={item.id}
+                        ref={(el) => {
+                          itemRefs.current[idx] = el;
+                        }}
                         role="button"
                         tabIndex={0}
                         onClick={() => handleJump(item, idx)}

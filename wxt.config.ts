@@ -11,11 +11,14 @@ export default defineConfig({
   manifest: {
     name: 'BiliFlow',
     description: '极速心流 · B站视频总结与键盘导航 AI 助手',
-    version: '1.0.1',
+    version: '1.0.2',
     browser_specific_settings: {
       gecko: {
         id: 'biliflow@luckjokerwang',
         strict_min_version: '109.0',
+        data_collection_permissions: {
+          required: ['none'],
+        },
       },
     },
     icons: {
