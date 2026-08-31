@@ -27,6 +27,7 @@ import {
   Square,
   X,
 } from 'lucide-react';
+import { browser } from 'wxt/browser';
 import { ProviderConfig, UserSettings, ExtensionResponse, ThemeMode } from '../../types';
 import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../../constants';
 import { ProviderLogo } from '../../components/ProviderIcons';
@@ -39,6 +40,27 @@ interface TestResultMap {
     latencyMs: number;
     error?: string;
   };
+}
+
+// Request host permissions if not already granted (especially for Firefox / Gecko MV3 & strict mode)
+async function requestHostPermissions(): Promise<boolean> {
+  try {
+    if (browser.permissions?.contains && browser.permissions?.request) {
+      const hasPerm = await browser.permissions.contains({
+        origins: ['https://*/*', 'http://*/*'],
+      });
+      if (!hasPerm) {
+        const granted = await browser.permissions.request({
+          origins: ['https://*/*', 'http://*/*'],
+        });
+        return Boolean(granted);
+      }
+    }
+    return true;
+  } catch (e) {
+    console.warn('Host permission check/request error:', e);
+    return true;
+  }
 }
 
 // Ensure clean slate: if a provider has never fetched remote models, its models pool must be empty
@@ -89,15 +111,16 @@ export const App: React.FC = () => {
   const [showModelPickerModal, setShowModelPickerModal] = useState<boolean>(false);
   const [pickerSearchQuery, setPickerSearchQuery] = useState<string>('');
   const [pickerSelectedModels, setPickerSelectedModels] = useState<string[]>([]);
+  const [pickerFetchError, setPickerFetchError] = useState<string | null>(null);
 
   // Load & Migrate Settings on Mount
   useEffect(() => {
     (async () => {
       try {
-        const res: ExtensionResponse<UserSettings> = await chrome.runtime.sendMessage({
+        const res: ExtensionResponse<UserSettings> = await browser.runtime.sendMessage({
           type: 'GET_SETTINGS',
         });
-        if (res.success && res.data) {
+        if (res && res.success && res.data) {
           const cleaned = migrateCleanSlate(res.data);
           setSettings(cleaned);
           if (cleaned.activeProviderId) {
@@ -105,7 +128,7 @@ export const App: React.FC = () => {
           }
           // If cleaned legacy models, persist cleaned state
           if (cleaned !== res.data) {
-            await chrome.runtime.sendMessage({
+            await browser.runtime.sendMessage({
               type: 'SAVE_SETTINGS',
               payload: cleaned,
             });
@@ -125,7 +148,7 @@ export const App: React.FC = () => {
   const saveSettings = async (newSettings: UserSettings, toastText = '配置已自动保存') => {
     setSettings(newSettings);
     try {
-      await chrome.runtime.sendMessage({
+      await browser.runtime.sendMessage({
         type: 'SAVE_SETTINGS',
         payload: newSettings,
       });
@@ -169,11 +192,12 @@ export const App: React.FC = () => {
     const currentId = selectedProvider.id;
     setTestingProviderId(currentId);
     try {
+      await requestHostPermissions();
       const res: ExtensionResponse<{
         success: boolean;
         latencyMs: number;
         error?: string;
-      }> = await chrome.runtime.sendMessage({
+      }> = await browser.runtime.sendMessage({
         type: 'TEST_PROVIDER_CONNECTION',
         payload: {
           baseUrl: selectedProvider.baseUrl,
@@ -182,7 +206,7 @@ export const App: React.FC = () => {
         },
       });
 
-      if (res.success && res.data) {
+      if (res && res.success && res.data) {
         setTestResults((prev) => ({
           ...prev,
           [currentId]: res.data,
@@ -193,7 +217,7 @@ export const App: React.FC = () => {
           [currentId]: {
             success: false,
             latencyMs: 0,
-            error: res.error || '测试请求失败',
+            error: res?.error || '测试请求失败',
           },
         }));
       }
@@ -215,6 +239,7 @@ export const App: React.FC = () => {
   const handleOpenModelPicker = async (forceFetch = false) => {
     const currentId = selectedProvider.id;
     setPickerSelectedModels([...(selectedProvider.models || [])]);
+    setPickerFetchError(null);
     setShowModelPickerModal(true);
 
     if (forceFetch || !selectedProvider.remoteModels || selectedProvider.remoteModels.length === 0) {
@@ -223,7 +248,8 @@ export const App: React.FC = () => {
       }
       setFetchingProviderId(currentId);
       try {
-        const res: ExtensionResponse<string[]> = await chrome.runtime.sendMessage({
+        await requestHostPermissions();
+        const res: ExtensionResponse<string[]> = await browser.runtime.sendMessage({
           type: 'FETCH_PROVIDER_MODELS',
           payload: {
             baseUrl: selectedProvider.baseUrl,
@@ -231,7 +257,7 @@ export const App: React.FC = () => {
           },
         });
 
-        if (res.success && res.data && res.data.length > 0) {
+        if (res && res.success && res.data && res.data.length > 0) {
           const fetched = res.data;
           updateSelectedProvider({
             remoteModels: fetched,
@@ -250,8 +276,15 @@ export const App: React.FC = () => {
               : fetched.slice(0, 3)
           );
           triggerToast(`成功获取 ${fetched.length} 个可用模型！`);
+        } else {
+          const errMsg = res?.error || '远程接口返回的模型列表为空或请求失败';
+          setPickerFetchError(errMsg);
+          triggerToast(`拉取失败: ${errMsg}`);
         }
       } catch (err: any) {
+        const errMsg = err?.message || '网络连接超时或无法访问该地址';
+        setPickerFetchError(errMsg);
+        triggerToast(`拉取失败: ${errMsg}`);
         console.error('Fetch models error:', err);
       } finally {
         setFetchingProviderId((prev) => (prev === currentId ? null : prev));
@@ -426,7 +459,7 @@ export const App: React.FC = () => {
                 >
                   BiliFlow
                   <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                    v0.3.0
+                    v1.0.1
                   </span>
                 </h1>
                 <p className="text-[11px] text-slate-400">极速心流 · 模型工作台</p>
@@ -1264,7 +1297,45 @@ export const App: React.FC = () => {
             </div>
 
             {/* Model Checkbox List */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-1.5">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
+              {pickerFetchError && (
+                <div
+                  className={`p-3.5 rounded-xl border text-xs space-y-2 animate-fade-in ${
+                    isDark
+                      ? 'bg-rose-950/30 border-rose-800/60 text-rose-300'
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  }`}
+                >
+                  <div className="flex items-center justify-between font-semibold">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
+                      <span>拉取模型列表失败</span>
+                    </div>
+                    <button
+                      onClick={() => handleOpenModelPicker(true)}
+                      className="px-2.5 py-1 rounded-lg bg-rose-500 text-white font-medium text-[11px] hover:bg-rose-600 transition-colors cursor-pointer"
+                    >
+                      重试拉取
+                    </button>
+                  </div>
+                  <p className="text-[11px] font-mono opacity-90 break-all pl-6">
+                    {pickerFetchError}
+                  </p>
+                  <div
+                    className={`text-[11px] pl-6 space-y-0.5 border-t pt-2 ${
+                      isDark ? 'border-rose-800/40 text-slate-400' : 'border-rose-200 text-slate-600'
+                    }`}
+                  >
+                    <p>
+                      • <strong>Firefox / Zen 浏览器</strong>：请在 <code>about:addons</code> -&gt; BiliFlow 详情 -&gt; “权限” 标签页，确认开启 <strong>“访问您在所有网站的数据”</strong> 开关。
+                    </p>
+                    <p>
+                      • <strong>海外大模型</strong>（OpenAI / Gemini / OpenRouter）：请确保已开启科学上网代理并放行插件连接。
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {filteredRemoteModels.length > 0 ? (
                 filteredRemoteModels.map((m) => {
                   const isChecked = pickerSelectedModels.includes(m);

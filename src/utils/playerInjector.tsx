@@ -7,12 +7,16 @@ import {
   seekToSeconds,
 } from './playerController';
 
+import { browser } from 'wxt/browser';
+
 let markersRoot: ReactDOM.Root | null = null;
 let markersHostEl: HTMLElement | null = null;
 
 function getCssLinkHtml(): string {
   const cssUrl =
-    typeof chrome !== 'undefined' && chrome.runtime?.getURL
+    typeof browser !== 'undefined' && browser.runtime?.getURL
+      ? browser.runtime.getURL('content-scripts/content.css')
+      : typeof chrome !== 'undefined' && chrome.runtime?.getURL
       ? chrome.runtime.getURL('content-scripts/content.css')
       : '';
   return cssUrl ? `<link rel="stylesheet" href="${cssUrl}">` : '';

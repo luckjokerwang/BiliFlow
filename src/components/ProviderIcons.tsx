@@ -1,4 +1,5 @@
 import React from 'react';
+import { browser } from 'wxt/browser';
 
 const KNOWN_LOGOS = new Set([
   'deepseek',
@@ -20,7 +21,9 @@ export const ProviderLogo: React.FC<{
   if (KNOWN_LOGOS.has(providerId)) {
     const filename = `${providerId}.svg`;
     const src =
-      typeof chrome !== 'undefined' && chrome.runtime?.getURL
+      typeof browser !== 'undefined' && browser.runtime?.getURL
+        ? browser.runtime.getURL(`logos/${filename}`)
+        : typeof chrome !== 'undefined' && chrome.runtime?.getURL
         ? chrome.runtime.getURL(`logos/${filename}`)
         : `/logos/${filename}`;
 

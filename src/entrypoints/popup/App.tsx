@@ -10,6 +10,7 @@ import {
 import { UserSettings, ExtensionResponse } from '../../types';
 import { DEFAULT_SETTINGS } from '../../constants';
 import { ProviderLogo } from '../../components/ProviderIcons';
+import { browser } from 'wxt/browser';
 
 export const App: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(DEFAULT_SETTINGS);
@@ -19,10 +20,10 @@ export const App: React.FC = () => {
   useEffect(() => {
     (async () => {
       try {
-        const res: ExtensionResponse<UserSettings> = await chrome.runtime.sendMessage({
+        const res: ExtensionResponse<UserSettings> = await browser.runtime.sendMessage({
           type: 'GET_SETTINGS',
         });
-        if (res.success && res.data) {
+        if (res && res.success && res.data) {
           setSettings(res.data);
         }
       } catch (e) {
@@ -37,17 +38,17 @@ export const App: React.FC = () => {
         setSettings(changes.user_settings.newValue);
       }
     };
-    if (chrome.storage?.onChanged) {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-      return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    if (browser.storage?.onChanged) {
+      browser.storage.onChanged.addListener(handleStorageChange);
+      return () => browser.storage.onChanged.removeListener(handleStorageChange);
     }
   }, []);
 
   const openOptionsPage = () => {
-    if (chrome.runtime?.openOptionsPage) {
-      chrome.runtime.openOptionsPage();
+    if (browser.runtime?.openOptionsPage) {
+      browser.runtime.openOptionsPage();
     } else {
-      window.open(chrome.runtime.getURL('options.html'));
+      window.open(browser.runtime.getURL('options.html'));
     }
   };
 
@@ -67,7 +68,7 @@ export const App: React.FC = () => {
     };
     setSettings(updated);
 
-    await chrome.runtime.sendMessage({
+    await browser.runtime.sendMessage({
       type: 'SAVE_SETTINGS',
       payload: updated,
     });
@@ -83,7 +84,7 @@ export const App: React.FC = () => {
     };
     setSettings(updated);
 
-    await chrome.runtime.sendMessage({
+    await browser.runtime.sendMessage({
       type: 'SAVE_SETTINGS',
       payload: updated,
     });
@@ -131,7 +132,7 @@ export const App: React.FC = () => {
             >
               BiliFlow
               <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                v0.3.1
+                v1.0.1
               </span>
             </h1>
             <p className="text-[10px] text-slate-400">极速心流 · B站视频提炼</p>

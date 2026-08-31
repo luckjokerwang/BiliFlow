@@ -23,6 +23,7 @@ import {
   ThemeMode,
   ResolvedVideoInfo,
 } from '../../types';
+import { browser } from 'wxt/browser';
 import {
   extractVideoMeta,
   isUserTyping,
@@ -40,14 +41,14 @@ import {
 async function safeSendMessage<T = any>(
   msg: ExtensionMessage
 ): Promise<ExtensionResponse<T>> {
-  if (!chrome.runtime?.id) {
+  if (!browser.runtime?.id) {
     return {
       success: false,
       error: 'BiliFlow 扩展已更新或重载。请按 F5 刷新此网页即可恢复使用。',
     };
   }
   try {
-    const res = await chrome.runtime.sendMessage(msg);
+    const res = await browser.runtime.sendMessage(msg);
     return res;
   } catch (err: any) {
     const errMsg = err?.message || String(err);
@@ -111,8 +112,8 @@ export const HudOverlay: React.FC = () => {
 
   // Open settings page safely via Background
   const handleOpenOptions = () => {
-    chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
-      window.open(chrome.runtime.getURL('options.html'));
+    browser.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
+      window.open(browser.runtime.getURL('options.html'));
     });
   };
 
@@ -121,7 +122,7 @@ export const HudOverlay: React.FC = () => {
     (async () => {
       try {
         const res = await safeSendMessage<UserSettings>({ type: 'GET_SETTINGS' });
-        if (res.success && res.data) {
+        if (res && res.success && res.data) {
           if (res.data.shortcutToggle) {
             setShortcutStr(res.data.shortcutToggle);
           }
@@ -146,9 +147,9 @@ export const HudOverlay: React.FC = () => {
       }
     };
 
-    if (chrome.storage?.onChanged) {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-      return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    if (browser.storage?.onChanged) {
+      browser.storage.onChanged.addListener(handleStorageChange);
+      return () => browser.storage.onChanged.removeListener(handleStorageChange);
     }
   }, []);
 
