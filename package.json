@@ -1,6 +1,6 @@
 {
   "name": "biliflow",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Keyboard-first, HUD-based, non-intrusive AI video summary companion for Bilibili",
   "private": true,
   "type": "module",
@@ -9,7 +9,10 @@
     "build": "wxt build",
     "zip": "wxt zip",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bump:patch": "node scripts/bump-version.mjs patch",
+    "bump:minor": "node scripts/bump-version.mjs minor",
+    "bump:major": "node scripts/bump-version.mjs major"
   },
   "dependencies": {
     "clsx": "^2.1.1",

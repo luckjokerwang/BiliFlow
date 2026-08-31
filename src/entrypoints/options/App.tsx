@@ -459,7 +459,7 @@ export const App: React.FC = () => {
                 >
                   BiliFlow
                   <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                    v1.0.2
+                    v1.0.3
                   </span>
                 </h1>
                 <p className="text-[11px] text-slate-400">极速心流 · 模型工作台</p>
