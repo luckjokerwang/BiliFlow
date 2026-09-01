@@ -1,4 +1,4 @@
-import { HighlightItem } from '../types';
+import { HighlightItem, OriginalQuote } from '../types';
 
 export interface TimelineMarker {
   id: string;
@@ -84,6 +84,29 @@ export function findActiveHighlightIndex(
         ? highlights[i].timestamp
         : (highlights[i].timestampSec ?? 0);
     if (hTime <= currentSec) {
+      activeIndex = i;
+    } else {
+      break;
+    }
+  }
+  return activeIndex;
+}
+
+/**
+ * Finds the index of the quote that corresponds to current playback time.
+ * Returns -1 if currentSec is before all quotes or quotes is empty.
+ * Returns index of the quote where quote.timestamp <= currentSec < nextQuote.timestamp.
+ */
+export function findActiveQuoteIndex(
+  quotes: OriginalQuote[],
+  currentSec: number
+): number {
+  if (!quotes || quotes.length === 0) return -1;
+  if (currentSec < 0 || isNaN(currentSec)) return -1;
+
+  let activeIndex = -1;
+  for (let i = 0; i < quotes.length; i++) {
+    if (quotes[i].timestamp <= currentSec) {
       activeIndex = i;
     } else {
       break;

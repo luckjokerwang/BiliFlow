@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   calculateTimelineMarkers,
   findActiveHighlightIndex,
+  findActiveQuoteIndex,
 } from '../src/utils/timelineCalculator';
 import { HighlightItem } from '../src/types';
 
@@ -133,5 +134,27 @@ describe('findActiveHighlightIndex', () => {
     expect(findActiveHighlightIndex(highlights, 90)).toBe(1);
     expect(findActiveHighlightIndex(highlights, 120)).toBe(2);
     expect(findActiveHighlightIndex(highlights, 300)).toBe(2);
+  });
+});
+
+describe('findActiveQuoteIndex', () => {
+  const quotes = [
+    { timestamp: 10, timestampStr: '00:10', content: '第一句' },
+    { timestamp: 25, timestampStr: '00:25', content: '第二句' },
+    { timestamp: 40, timestampStr: '00:40', content: '第三句' },
+  ];
+
+  it('returns -1 when currentSec is before all quotes', () => {
+    expect(findActiveQuoteIndex(quotes, 5)).toBe(-1);
+    expect(findActiveQuoteIndex([], 15)).toBe(-1);
+  });
+
+  it('returns the active quote index matching current playback time', () => {
+    expect(findActiveQuoteIndex(quotes, 10)).toBe(0);
+    expect(findActiveQuoteIndex(quotes, 20)).toBe(0);
+    expect(findActiveQuoteIndex(quotes, 25)).toBe(1);
+    expect(findActiveQuoteIndex(quotes, 39)).toBe(1);
+    expect(findActiveQuoteIndex(quotes, 40)).toBe(2);
+    expect(findActiveQuoteIndex(quotes, 100)).toBe(2);
   });
 });

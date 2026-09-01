@@ -16,6 +16,7 @@ import {
   RotateCcw,
   ShieldCheck,
   FileText,
+  Volume2,
 } from 'lucide-react';
 import { browser } from 'wxt/browser';
 import {
@@ -38,6 +39,7 @@ import {
 import {
   calculateTimelineMarkers,
   findActiveHighlightIndex,
+  findActiveQuoteIndex,
 } from '../../utils/timelineCalculator';
 import {
   renderTimelineMarkers,
@@ -119,6 +121,17 @@ export const HudOverlay: React.FC = () => {
   // Dedicated container and item refs for rock-solid programmatic scroll
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const activeQuoteRef = useRef<HTMLDivElement | null>(null);
+
+  // Scroll active quote into view within its container when currentPlaybackSec updates
+  useEffect(() => {
+    if (activeQuoteRef.current) {
+      activeQuoteRef.current.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth',
+      });
+    }
+  }, [currentPlaybackSec]);
 
   // Manual interaction cooldown: pause auto-scroll when user manually clicks, navigates, or scrolls
   const userManualActionUntilRef = useRef<number>(0);
@@ -806,47 +819,83 @@ export const HudOverlay: React.FC = () => {
                             </p>
                           )}
 
-                          {/* Expandable Original Quotes Section */}
-                          {isExpanded && hasQuotes && (
-                            <div
-                              className={`mt-2 p-2.5 rounded-lg border text-[11px] space-y-1.5 transition-all ${
-                                isDark
-                                  ? 'bg-slate-900/90 border-slate-700/60 text-slate-300'
-                                  : 'bg-slate-100/90 border-slate-200 text-slate-700'
-                              }`}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pb-1 border-b border-slate-700/30">
-                                <span className="flex items-center gap-1 text-sky-400 font-medium">
-                                  <Quote className="w-2.5 h-2.5" />
-                                  <span>原文字幕依据</span>
-                                </span>
-                                <span className="text-[9px] text-slate-500">点击时间戳直达原句</span>
+                          {/* Expandable Original Quotes Section with Real-Time Audio/Video Sync */}
+                          {isExpanded && hasQuotes && (() => {
+                            const activeQuoteIdx = findActiveQuoteIndex(
+                              item.originalQuotes!,
+                              currentPlaybackSec
+                            );
+
+                            return (
+                              <div
+                                className={`mt-2 p-2.5 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                                  isDark
+                                    ? 'bg-slate-900/90 border-slate-700/60 text-slate-300'
+                                    : 'bg-slate-100/90 border-slate-200 text-slate-700'
+                                }`}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pb-1 border-b border-slate-700/30">
+                                  <span className="flex items-center gap-1 text-sky-400 font-medium">
+                                    <Quote className="w-2.5 h-2.5" />
+                                    <span>原文字幕依据（声画同步）</span>
+                                  </span>
+                                  <span className="text-[9px] text-slate-500">点击任意句跳转播放</span>
+                                </div>
+                                <div className="space-y-1 pt-0.5 max-h-40 overflow-y-auto">
+                                  {item.originalQuotes!.map((q, qIdx) => {
+                                    const isCurrentPlayingQuote = qIdx === activeQuoteIdx;
+
+                                    return (
+                                      <div
+                                        key={qIdx}
+                                        ref={(el) => {
+                                          if (el && isCurrentPlayingQuote) {
+                                            activeQuoteRef.current = el;
+                                          }
+                                        }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          seekToSeconds(q.timestamp);
+                                          showToast(`已跳至原句: [${q.timestampStr}]`);
+                                          markUserManualAction();
+                                        }}
+                                        className={`group/quote p-1.5 rounded-lg flex items-start gap-1.5 text-[11px] cursor-pointer transition-all duration-150 border ${
+                                          isCurrentPlayingQuote
+                                            ? isDark
+                                              ? 'bg-sky-500/20 border-sky-500/50 text-white shadow-sm shadow-sky-500/20 font-medium'
+                                              : 'bg-sky-50 border-sky-300 text-sky-950 font-medium shadow-sm'
+                                            : isDark
+                                            ? 'border-transparent hover:bg-slate-800/60 text-slate-300'
+                                            : 'border-transparent hover:bg-slate-200/60 text-slate-700'
+                                        }`}
+                                      >
+                                        <button
+                                          type="button"
+                                          className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded font-mono text-[10px] shrink-0 mt-0.5 transition-colors ${
+                                            isCurrentPlayingQuote
+                                              ? 'bg-sky-500 text-white font-bold'
+                                              : 'text-sky-400 group-hover/quote:bg-sky-500/10'
+                                          }`}
+                                          title={`跳转至 ${q.timestampStr}`}
+                                        >
+                                          {isCurrentPlayingQuote ? (
+                                            <Volume2 className="w-2.5 h-2.5 animate-pulse text-white" />
+                                          ) : (
+                                            <Clock className="w-2.5 h-2.5" />
+                                          )}
+                                          {q.timestampStr}
+                                        </button>
+                                        <span className="leading-relaxed break-words flex-1">
+                                          {q.content}
+                                        </span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                              <div className="space-y-1.5 pt-0.5 max-h-36 overflow-y-auto">
-                                {item.originalQuotes!.map((q, qIdx) => (
-                                  <div key={qIdx} className="flex items-start gap-1.5 text-[11px]">
-                                    <button
-                                      type="button"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        seekToSeconds(q.timestamp);
-                                        showToast(`已跳至原句: [${q.timestampStr}]`);
-                                      }}
-                                      className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded font-mono text-[10px] text-sky-400 hover:text-white hover:bg-sky-500 transition-colors cursor-pointer shrink-0 mt-0.5"
-                                      title={`跳转至 ${q.timestampStr}`}
-                                    >
-                                      <Clock className="w-2.5 h-2.5" />
-                                      {q.timestampStr}
-                                    </button>
-                                    <span className="leading-relaxed text-slate-300 break-words flex-1">
-                                      {q.content}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                            );
+                          })()}
                         </div>
 
                         <ChevronRight
