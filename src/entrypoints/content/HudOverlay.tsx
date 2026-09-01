@@ -3,6 +3,9 @@ import {
   Zap,
   Clock,
   ChevronRight,
+  ChevronDown,
+  ChevronUp,
+  Quote,
   X,
   AlertCircle,
   Loader2,
@@ -103,11 +106,25 @@ export const HudOverlay: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [shortcutStr, setShortcutStr] = useState<string>('Alt+S');
   const [theme, setTheme] = useState<ThemeMode>('dark');
+  const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string | number>>(new Set());
   const currentVideoKeyRef = useRef<string>('');
   
   // Dedicated container and item refs for rock-solid programmatic scroll
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  const toggleQuoteExpand = (id: string | number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setExpandedQuoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -201,6 +218,7 @@ export const HudOverlay: React.FC = () => {
     setError(null);
     setLoading(true);
     setSelectedIndex(0);
+    setExpandedQuoteIds(new Set());
 
     try {
       // 1. Resolve exact video metadata (aid, cid, title, duration) via Background Service Worker
@@ -326,6 +344,7 @@ export const HudOverlay: React.FC = () => {
             setSummary(null);
             setError(null);
             setSelectedIndex(0);
+            setExpandedQuoteIds(new Set());
             if (isOpen) {
               loadSummaryForCurrentVideo();
             }
@@ -560,6 +579,9 @@ export const HudOverlay: React.FC = () => {
                 <div className="space-y-1.5">
                   {summary.highlights.map((item, idx) => {
                     const isSelected = selectedIndex === idx;
+                    const isExpanded = expandedQuoteIds.has(item.id);
+                    const hasQuotes = item.originalQuotes && item.originalQuotes.length > 0;
+
                     return (
                       <div
                         key={item.id}
@@ -599,25 +621,53 @@ export const HudOverlay: React.FC = () => {
 
                         {/* Text details */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span
-                              className={`font-semibold text-xs truncate ${
-                                isDark ? 'text-white' : 'text-slate-900'
-                              }`}
-                            >
-                              {item.title}
-                            </span>
-                            <span
-                              className={`inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.2 rounded border ${
-                                isDark
-                                  ? 'text-sky-300 bg-sky-950/60 border-sky-800/40'
-                                  : 'text-sky-700 bg-sky-50 border-sky-200'
-                              }`}
-                            >
-                              <Clock className="w-2.5 h-2.5" />
-                              {item.timestampStr}
-                            </span>
+                          <div className="flex items-center justify-between gap-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span
+                                className={`font-semibold text-xs truncate ${
+                                  isDark ? 'text-white' : 'text-slate-900'
+                                }`}
+                              >
+                                {item.title}
+                              </span>
+                              <span
+                                className={`inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.2 rounded border shrink-0 ${
+                                  isDark
+                                    ? 'text-sky-300 bg-sky-950/60 border-sky-800/40'
+                                    : 'text-sky-700 bg-sky-50 border-sky-200'
+                                }`}
+                              >
+                                <Clock className="w-2.5 h-2.5" />
+                                {item.timestampStr}
+                              </span>
+                            </div>
+
+                            {hasQuotes && (
+                              <button
+                                type="button"
+                                onClick={(e) => toggleQuoteExpand(item.id, e)}
+                                className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
+                                  isExpanded
+                                    ? isDark
+                                      ? 'bg-sky-500/20 text-sky-400 hover:bg-sky-500/30'
+                                      : 'bg-sky-100 text-sky-700 hover:bg-sky-200'
+                                    : isDark
+                                    ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/60'
+                                }`}
+                                title={isExpanded ? '收起原文依据' : '展开原文字幕依据'}
+                              >
+                                <Quote className="w-2.5 h-2.5" />
+                                <span>{isExpanded ? '收起' : '原文'}</span>
+                                {isExpanded ? (
+                                  <ChevronUp className="w-2.5 h-2.5" />
+                                ) : (
+                                  <ChevronDown className="w-2.5 h-2.5" />
+                                )}
+                              </button>
+                            )}
                           </div>
+
                           {item.keyPoint && (
                             <p
                               className={`text-[11px] mt-1 leading-snug ${
@@ -627,10 +677,52 @@ export const HudOverlay: React.FC = () => {
                               {item.keyPoint}
                             </p>
                           )}
+
+                          {/* Expandable Original Quotes Section */}
+                          {isExpanded && hasQuotes && (
+                            <div
+                              className={`mt-2 p-2.5 rounded-lg border text-[11px] space-y-1.5 transition-all ${
+                                isDark
+                                  ? 'bg-slate-900/90 border-slate-700/60 text-slate-300'
+                                  : 'bg-slate-100/90 border-slate-200 text-slate-700'
+                              }`}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pb-1 border-b border-slate-700/30">
+                                <span className="flex items-center gap-1 text-sky-400 font-medium">
+                                  <Quote className="w-2.5 h-2.5" />
+                                  <span>原文字幕依据</span>
+                                </span>
+                                <span className="text-[9px] text-slate-500">点击时间戳直达原句</span>
+                              </div>
+                              <div className="space-y-1.5 pt-0.5 max-h-36 overflow-y-auto">
+                                {item.originalQuotes!.map((q, qIdx) => (
+                                  <div key={qIdx} className="flex items-start gap-1.5 text-[11px]">
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        seekToSeconds(q.timestamp);
+                                        showToast(`已跳至原句: [${q.timestampStr}]`);
+                                      }}
+                                      className="inline-flex items-center gap-0.5 px-1 py-0.2 rounded font-mono text-[10px] text-sky-400 hover:text-white hover:bg-sky-500 transition-colors cursor-pointer shrink-0 mt-0.5"
+                                      title={`跳转至 ${q.timestampStr}`}
+                                    >
+                                      <Clock className="w-2.5 h-2.5" />
+                                      {q.timestampStr}
+                                    </button>
+                                    <span className="leading-relaxed text-slate-300 break-words flex-1">
+                                      {q.content}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <ChevronRight
-                          className={`w-4 h-4 self-center transition-transform ${
+                          className={`w-4 h-4 self-center transition-transform shrink-0 ${
                             isSelected
                               ? 'text-sky-500 translate-x-0.5'
                               : 'text-slate-400 opacity-0 group-hover:opacity-100'

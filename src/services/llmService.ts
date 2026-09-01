@@ -1,6 +1,11 @@
-import { BiliRawSubtitleItem, ProviderConfig, VideoSummaryResult } from '../types';
+import {
+  ProviderConfig,
+  VideoSummaryResult,
+  BiliRawSubtitleItem,
+} from '../types';
 import { chunkSubtitles, formatTranscriptForPrompt } from '../utils/transcriptChunker';
 import { parseLLMSummaryOutput } from '../utils/llmParser';
+import { extractQuotesForHighlight } from '../utils/subtitleUtils';
 
 const SYSTEM_PROMPT = `
 你是一个专业的 B 站视频核心内容提炼专家。
@@ -282,8 +287,14 @@ ${formattedTranscript}
     });
 
     const parsed = parseLLMSummaryOutput(rawContent, { bvid, cid, title });
+    const highlightsWithQuotes = parsed.highlights.map((item) => ({
+      ...item,
+      originalQuotes: extractQuotesForHighlight(item.timestamp, subtitles),
+    }));
+
     return {
       ...parsed,
+      highlights: highlightsWithQuotes,
       usedModel: primaryModel,
       isFallbackUsed: false,
     };
@@ -302,8 +313,14 @@ ${formattedTranscript}
         });
 
         const parsed = parseLLMSummaryOutput(fallbackContent, { bvid, cid, title });
+        const highlightsWithQuotes = parsed.highlights.map((item) => ({
+          ...item,
+          originalQuotes: extractQuotesForHighlight(item.timestamp, subtitles),
+        }));
+
         return {
           ...parsed,
+          highlights: highlightsWithQuotes,
           usedModel: fallbackCandidate,
           isFallbackUsed: true,
         };

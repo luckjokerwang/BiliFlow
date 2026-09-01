@@ -1,7 +1,17 @@
 import { BiliRawSubtitleItem, BiliSubtitleResponse } from '../types';
+import {
+  selectPreferredSubtitleTrack,
+  fuseSubtitles,
+} from '../utils/subtitleUtils';
 
 /**
  * Fetches subtitle items for a Bilibili video using official / AI subtitle endpoints.
+ * Waterfall Strategy:
+ * 1. Primary: x/v2/dm/view (captures all modern AI subtitles and manual CC tracks)
+ * 2. Fallback: x/player/v2 & x/player/wbi/v2 (traditional player init metadata)
+ * 3. Priority: UP Manual Chinese > Bilibili AI Chinese > Manual others > AI translated
+ * 4. Sentence Fusion: merges raw chopped ASR segments into natural coherent sentences.
+ *
  * Note: Must be executed in the Background Service Worker context to bypass CORS/CSP.
  */
 export async function fetchBilibiliSubtitles(params: {
@@ -22,31 +32,53 @@ export async function fetchBilibiliSubtitles(params: {
     Referer: `https://www.bilibili.com/video/${bvid}`,
   };
 
-  // 1. Try standard player/v2 endpoint with credentials
-  let url = `https://api.bilibili.com/x/player/v2?cid=${cid}&bvid=${bvid}`;
-  if (aid) {
-    url += `&aid=${aid}`;
-  }
-
   let subtitlesList: any[] | undefined;
 
+  // 1. Primary: Query modern Danmaku & AI Subtitle gateway (x/v2/dm/view)
   try {
-    const res = await fetch(url, {
+    let dmUrl = `https://api.bilibili.com/x/v2/dm/view?oid=${cid}&type=1`;
+    if (aid) {
+      dmUrl += `&pid=${aid}`;
+    }
+
+    const res = await fetch(dmUrl, {
       headers,
       credentials: 'include',
     });
 
     if (res.ok) {
       const json: BiliSubtitleResponse = await res.json();
-      if (json.code === 0 && json.data?.subtitle?.subtitles) {
+      if (json.code === 0 && json.data?.subtitle?.subtitles?.length) {
         subtitlesList = json.data.subtitle.subtitles;
       }
     }
   } catch (e) {
-    console.warn('[BiliFlow] fetch player/v2 failed, trying fallback:', e);
+    console.warn('[BiliFlow] fetch x/v2/dm/view failed, trying player fallback:', e);
   }
 
-  // 2. Try wbi player endpoint if player/v2 returned empty
+  // 2. Fallback: Query traditional player/v2 if primary returned empty
+  if (!subtitlesList || subtitlesList.length === 0) {
+    try {
+      let playerUrl = `https://api.bilibili.com/x/player/v2?cid=${cid}&bvid=${bvid}`;
+      if (aid) {
+        playerUrl += `&aid=${aid}`;
+      }
+      const res = await fetch(playerUrl, {
+        headers,
+        credentials: 'include',
+      });
+      if (res.ok) {
+        const json: BiliSubtitleResponse = await res.json();
+        if (json.code === 0 && json.data?.subtitle?.subtitles?.length) {
+          subtitlesList = json.data.subtitle.subtitles;
+        }
+      }
+    } catch (e) {
+      console.warn('[BiliFlow] fetch player/v2 fallback failed:', e);
+    }
+  }
+
+  // 3. Fallback: Query player/wbi/v2
   if (!subtitlesList || subtitlesList.length === 0) {
     try {
       const wbiUrl = `https://api.bilibili.com/x/player/wbi/v2?cid=${cid}&bvid=${bvid}${aid ? `&aid=${aid}` : ''}`;
@@ -56,12 +88,12 @@ export async function fetchBilibiliSubtitles(params: {
       });
       if (res.ok) {
         const json: BiliSubtitleResponse = await res.json();
-        if (json.code === 0 && json.data?.subtitle?.subtitles) {
+        if (json.code === 0 && json.data?.subtitle?.subtitles?.length) {
           subtitlesList = json.data.subtitle.subtitles;
         }
       }
     } catch (e) {
-      console.warn('[BiliFlow] fetch player/wbi/v2 failed:', e);
+      console.warn('[BiliFlow] fetch player/wbi/v2 fallback failed:', e);
     }
   }
 
@@ -69,10 +101,8 @@ export async function fetchBilibiliSubtitles(params: {
     throw new Error('该视频未包含任何官方字幕或 AI 生成字幕，无法提炼要点。');
   }
 
-  // Pick first available subtitle track (prefer zh-CN / 中文)
-  const preferredTrack =
-    subtitlesList.find((s) => s.lan?.includes('zh') || s.lan_doc?.includes('中')) ||
-    subtitlesList[0];
+  // 4. Select preferred subtitle track via Waterfall priority
+  const preferredTrack = selectPreferredSubtitleTrack(subtitlesList);
 
   if (!preferredTrack || !preferredTrack.subtitle_url) {
     throw new Error('未找到可用的字幕下载地址。');
@@ -95,9 +125,12 @@ export async function fetchBilibiliSubtitles(params: {
     throw new Error('获取到的字幕内容为空。');
   }
 
-  return rawBody.map((item: any) => ({
+  const mappedItems: BiliRawSubtitleItem[] = rawBody.map((item: any) => ({
     from: Number(item.from) || 0,
     to: Number(item.to) || 0,
     content: String(item.content || ''),
   }));
+
+  // 5. Apply Sentence Fusion to create coherent natural sentences and save tokens
+  return fuseSubtitles(mappedItems);
 }

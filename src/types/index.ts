@@ -33,6 +33,12 @@ export interface TranscriptChunk {
   text: string;
 }
 
+export interface OriginalQuote {
+  timestamp: number;     // Start seconds
+  timestampStr: string;  // "mm:ss"
+  content: string;       // Original transcript content
+}
+
 export interface HighlightItem {
   id: number | string;
   timestamp: number;     // In seconds
@@ -40,6 +46,7 @@ export interface HighlightItem {
   timestampStr: string;  // "mm:ss"
   title: string;         // Short headline (< 20 chars)
   keyPoint: string;      // 1-2 sentence core insight
+  originalQuotes?: OriginalQuote[]; // 3-5 original transcript quotes around this highlight
 }
 
 export interface VideoSummaryResult {
