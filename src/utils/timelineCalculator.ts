@@ -64,3 +64,30 @@ export function calculateTimelineMarkers(
 
   return markers;
 }
+
+/**
+ * Finds the index of the highlight that corresponds to current playback time.
+ * If currentSec is before the first highlight or negative, returns 0.
+ * Otherwise returns the highlight where highlight.timestamp <= currentSec < next.timestamp.
+ */
+export function findActiveHighlightIndex(
+  highlights: HighlightItem[],
+  currentSec: number
+): number {
+  if (!highlights || highlights.length === 0) return 0;
+  if (currentSec <= 0 || isNaN(currentSec)) return 0;
+
+  let activeIndex = 0;
+  for (let i = 0; i < highlights.length; i++) {
+    const hTime =
+      typeof highlights[i].timestamp === 'number'
+        ? highlights[i].timestamp
+        : (highlights[i].timestampSec ?? 0);
+    if (hTime <= currentSec) {
+      activeIndex = i;
+    } else {
+      break;
+    }
+  }
+  return activeIndex;
+}

@@ -33,9 +33,11 @@ import {
   isUserTyping,
   seekToSeconds,
   getVideoDuration,
+  getVideoElement,
 } from '../../utils/playerController';
 import {
   calculateTimelineMarkers,
+  findActiveHighlightIndex,
 } from '../../utils/timelineCalculator';
 import {
   renderTimelineMarkers,
@@ -111,14 +113,22 @@ export const HudOverlay: React.FC = () => {
   const [shortcutToggleQuotes, setShortcutToggleQuotes] = useState<string>('O');
   const [theme, setTheme] = useState<ThemeMode>('dark');
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string | number>>(new Set());
+  const [currentPlaybackSec, setCurrentPlaybackSec] = useState<number>(0);
   const currentVideoKeyRef = useRef<string>('');
   
   // Dedicated container and item refs for rock-solid programmatic scroll
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
 
+  // Manual interaction cooldown: pause auto-scroll when user manually clicks, navigates, or scrolls
+  const userManualActionUntilRef = useRef<number>(0);
+  const markUserManualAction = useCallback(() => {
+    userManualActionUntilRef.current = Date.now() + 3000;
+  }, []);
+
   const toggleQuoteExpand = (id: string | number, e: React.MouseEvent) => {
     e.stopPropagation();
+    markUserManualAction();
     setExpandedQuoteIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) {
@@ -171,6 +181,59 @@ export const HudOverlay: React.FC = () => {
       scrollToActiveItem(selectedIndex);
     }
   }, [selectedIndex, summary, scrollToActiveItem]);
+
+  // Real-time video player listener for playback sync & auto-scroll
+  useEffect(() => {
+    let active = true;
+    let videoEl: HTMLVideoElement | null = null;
+
+    const handleTimeUpdate = () => {
+      if (!active || !videoEl) return;
+      const sec = videoEl.currentTime;
+      setCurrentPlaybackSec(sec);
+
+      // Auto-match highlight node according to current playback time
+      if (summary?.highlights && summary.highlights.length > 0) {
+        const matchedIndex = findActiveHighlightIndex(summary.highlights, sec);
+        setSelectedIndex((prevIndex) => {
+          if (prevIndex !== matchedIndex) {
+            // Auto-scroll only if user is not in manual action cooldown
+            if (Date.now() > userManualActionUntilRef.current) {
+              scrollToActiveItem(matchedIndex);
+            }
+            return matchedIndex;
+          }
+          return prevIndex;
+        });
+      }
+    };
+
+    const attachVideo = () => {
+      const v = getVideoElement();
+      if (v && v !== videoEl) {
+        if (videoEl) {
+          videoEl.removeEventListener('timeupdate', handleTimeUpdate);
+          videoEl.removeEventListener('seeked', handleTimeUpdate);
+        }
+        videoEl = v;
+        v.addEventListener('timeupdate', handleTimeUpdate);
+        v.addEventListener('seeked', handleTimeUpdate);
+        handleTimeUpdate();
+      }
+    };
+
+    attachVideo();
+    const interval = setInterval(attachVideo, 1000);
+
+    return () => {
+      active = false;
+      clearInterval(interval);
+      if (videoEl) {
+        videoEl.removeEventListener('timeupdate', handleTimeUpdate);
+        videoEl.removeEventListener('seeked', handleTimeUpdate);
+      }
+    };
+  }, [summary, scrollToActiveItem]);
 
   // Load User Preferences on Mount
   useEffect(() => {
@@ -315,6 +378,7 @@ export const HudOverlay: React.FC = () => {
 
   // Jump to specific highlight (safe timestamp check)
   const handleJump = useCallback((highlight: HighlightItem, index: number) => {
+    markUserManualAction();
     setSelectedIndex(index);
     scrollToActiveItem(index);
 
@@ -327,7 +391,7 @@ export const HudOverlay: React.FC = () => {
     if (success) {
       showToast(`已直达: [${highlight.timestampStr}] ${highlight.title}`);
     }
-  }, [scrollToActiveItem]);
+  }, [scrollToActiveItem, markUserManualAction]);
 
   // Synchronize Timeline Markers on Bilibili progress bar
   useEffect(() => {
@@ -565,9 +629,11 @@ export const HudOverlay: React.FC = () => {
           </div>
         </div>
 
-        {/* Content Body - with dedicated scrollContainerRef */}
+        {/* Content Body - with dedicated scrollContainerRef and user scroll listener */}
         <div
           ref={scrollContainerRef}
+          onWheel={markUserManualAction}
+          onTouchMove={markUserManualAction}
           className="p-4 max-h-[70vh] overflow-y-auto scroll-smooth space-y-3.5"
         >
           {loading && (

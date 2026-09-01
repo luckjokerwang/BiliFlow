@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { calculateTimelineMarkers } from '../src/utils/timelineCalculator';
+import {
+  calculateTimelineMarkers,
+  findActiveHighlightIndex,
+} from '../src/utils/timelineCalculator';
 import { HighlightItem } from '../src/types';
 
 describe('calculateTimelineMarkers', () => {
@@ -107,5 +110,28 @@ describe('calculateTimelineMarkers', () => {
     expect(markers[0].clusterGroup).toBeDefined();
     expect(markers[0].clusterGroup).toBe(markers[1].clusterGroup);
     expect(markers[2].clusterGroup).not.toBe(markers[0].clusterGroup);
+  });
+});
+
+describe('findActiveHighlightIndex', () => {
+  const highlights: HighlightItem[] = [
+    { id: '1', title: 'A', timestamp: 20, timestampStr: '00:20', keyPoint: '' },
+    { id: '2', title: 'B', timestamp: 60, timestampStr: '01:00', keyPoint: '' },
+    { id: '3', title: 'C', timestamp: 120, timestampStr: '02:00', keyPoint: '' },
+  ];
+
+  it('returns 0 when currentSec is before first highlight or negative', () => {
+    expect(findActiveHighlightIndex(highlights, 0)).toBe(0);
+    expect(findActiveHighlightIndex(highlights, 10)).toBe(0);
+    expect(findActiveHighlightIndex(highlights, -5)).toBe(0);
+  });
+
+  it('returns correct index when currentSec falls within middle or past last highlight', () => {
+    expect(findActiveHighlightIndex(highlights, 20)).toBe(0);
+    expect(findActiveHighlightIndex(highlights, 59)).toBe(0);
+    expect(findActiveHighlightIndex(highlights, 60)).toBe(1);
+    expect(findActiveHighlightIndex(highlights, 90)).toBe(1);
+    expect(findActiveHighlightIndex(highlights, 120)).toBe(2);
+    expect(findActiveHighlightIndex(highlights, 300)).toBe(2);
   });
 });
