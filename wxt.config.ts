@@ -1,12 +1,40 @@
 import { defineConfig } from 'wxt';
 import react from '@vitejs/plugin-react';
+import fs from 'node:fs';
+import path from 'node:path';
+
+// Safeguard: strictly prevent promotional screenshots or non-runtime assets from contaminating build
+function excludeScreenshotsPlugin() {
+  return {
+    name: 'exclude-screenshots-plugin',
+    closeBundle() {
+      const outputDir = path.resolve('.output');
+      if (!fs.existsSync(outputDir)) return;
+
+      const subdirs = ['chrome-mv3', 'firefox-mv2'];
+      for (const subdir of subdirs) {
+        const targetDir = path.join(outputDir, subdir);
+        if (fs.existsSync(targetDir)) {
+          const files = fs.readdirSync(targetDir);
+          for (const file of files) {
+            if (file.startsWith('screenshot') || (file.endsWith('.png') && !file.startsWith('icon'))) {
+              try {
+                fs.unlinkSync(path.join(targetDir, file));
+              } catch {}
+            }
+          }
+        }
+      }
+    },
+  };
+}
 
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
   vite: () => ({
-    plugins: [react()],
+    plugins: [react(), excludeScreenshotsPlugin()],
   }),
   manifest: {
     name: 'BiliFlow',

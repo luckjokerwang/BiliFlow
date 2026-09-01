@@ -32,3 +32,8 @@ pnpm-debug.log*
 Thumbs.db
 *.swp
 *.swo
+
+# Promotional screenshots (keep in assets/screenshots, never in src/public)
+src/public/screenshot*
+src/public/*.png
+!src/public/icons/*.png
