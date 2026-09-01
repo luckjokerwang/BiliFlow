@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   FileText,
 } from 'lucide-react';
+import { browser } from 'wxt/browser';
 import {
   ExtensionMessage,
   ExtensionResponse,
@@ -44,14 +45,14 @@ import {
 async function safeSendMessage<T = any>(
   msg: ExtensionMessage
 ): Promise<ExtensionResponse<T>> {
-  if (!chrome.runtime?.id) {
+  if (!browser.runtime?.id) {
     return {
       success: false,
       error: 'BiliFlow 扩展已更新或重载。请按 F5 刷新此网页即可恢复使用。',
     };
   }
   try {
-    const res = await chrome.runtime.sendMessage(msg);
+    const res = await browser.runtime.sendMessage(msg);
     return res;
   } catch (err: any) {
     const errMsg = err?.message || String(err);
@@ -133,8 +134,8 @@ export const HudOverlay: React.FC = () => {
 
   // Open settings page safely via Background
   const handleOpenOptions = () => {
-    chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
-      window.open(chrome.runtime.getURL('options.html'));
+    browser.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
+      window.open(browser.runtime.getURL('options.html'));
     });
   };
 
@@ -487,6 +488,18 @@ export const HudOverlay: React.FC = () => {
               aria-label="重新生成总结"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={handleOpenOptions}
+              className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+                isDark
+                  ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                  : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+              }`}
+              title="打开设置工作台"
+              aria-label="打开设置工作台"
+            >
+              <Settings className="w-3.5 h-3.5" />
             </button>
             <button
               onClick={() => setIsOpen(false)}

@@ -1,6 +1,6 @@
 {
   "name": "biliflow",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Keyboard-first, HUD-based, non-intrusive AI video summary companion for Bilibili",
   "private": true,
   "type": "module",
