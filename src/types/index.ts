@@ -97,6 +97,9 @@ export interface UserSettings {
   enableFallback?: boolean;
   autoFetch?: boolean;
   shortcutToggle?: string;
+  shortcutPrevNode?: string;
+  shortcutNextNode?: string;
+  shortcutToggleQuotes?: string;
   theme?: ThemeMode;
 }
 

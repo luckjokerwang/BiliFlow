@@ -127,5 +127,8 @@ export const DEFAULT_SETTINGS: UserSettings = {
   enableFallback: true,
   autoFetch: true,
   shortcutToggle: 'Alt+S',
+  shortcutPrevNode: 'K',
+  shortcutNextNode: 'J',
+  shortcutToggleQuotes: 'O',
   theme: 'dark',
 };

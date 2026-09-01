@@ -70,7 +70,7 @@ async function safeSendMessage<T = any>(
 }
 
 function matchesShortcut(e: KeyboardEvent, shortcutStr: string): boolean {
-  if (!shortcutStr) return e.altKey && (e.key.toLowerCase() === 's' || e.code === 'KeyS');
+  if (!shortcutStr) return false;
 
   const parts = shortcutStr.split('+').map((p) => p.trim().toLowerCase());
   const needCtrl = parts.includes('ctrl') || parts.includes('control');
@@ -105,7 +105,10 @@ export const HudOverlay: React.FC = () => {
   const [summary, setSummary] = useState<VideoSummaryResult | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
-  const [shortcutStr, setShortcutStr] = useState<string>('Alt+S');
+  const [shortcutToggle, setShortcutToggle] = useState<string>('Alt+S');
+  const [shortcutPrevNode, setShortcutPrevNode] = useState<string>('K');
+  const [shortcutNextNode, setShortcutNextNode] = useState<string>('J');
+  const [shortcutToggleQuotes, setShortcutToggleQuotes] = useState<string>('O');
   const [theme, setTheme] = useState<ThemeMode>('dark');
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string | number>>(new Set());
   const currentVideoKeyRef = useRef<string>('');
@@ -174,9 +177,18 @@ export const HudOverlay: React.FC = () => {
     (async () => {
       try {
         const res = await safeSendMessage<UserSettings>({ type: 'GET_SETTINGS' });
-        if (res.success && res.data) {
+        if (res && res.success && res.data) {
           if (res.data.shortcutToggle) {
-            setShortcutStr(res.data.shortcutToggle);
+            setShortcutToggle(res.data.shortcutToggle);
+          }
+          if (res.data.shortcutPrevNode) {
+            setShortcutPrevNode(res.data.shortcutPrevNode);
+          }
+          if (res.data.shortcutNextNode) {
+            setShortcutNextNode(res.data.shortcutNextNode);
+          }
+          if (res.data.shortcutToggleQuotes) {
+            setShortcutToggleQuotes(res.data.shortcutToggleQuotes);
           }
           if (res.data.theme) {
             setTheme(res.data.theme);
@@ -191,7 +203,16 @@ export const HudOverlay: React.FC = () => {
       if (changes.user_settings?.newValue) {
         const newSettings: UserSettings = changes.user_settings.newValue;
         if (newSettings.shortcutToggle) {
-          setShortcutStr(newSettings.shortcutToggle);
+          setShortcutToggle(newSettings.shortcutToggle);
+        }
+        if (newSettings.shortcutPrevNode) {
+          setShortcutPrevNode(newSettings.shortcutPrevNode);
+        }
+        if (newSettings.shortcutNextNode) {
+          setShortcutNextNode(newSettings.shortcutNextNode);
+        }
+        if (newSettings.shortcutToggleQuotes) {
+          setShortcutToggleQuotes(newSettings.shortcutToggleQuotes);
         }
         if (newSettings.theme) {
           setTheme(newSettings.theme);
@@ -199,9 +220,9 @@ export const HudOverlay: React.FC = () => {
       }
     };
 
-    if (chrome.storage?.onChanged) {
-      chrome.storage.onChanged.addListener(handleStorageChange);
-      return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    if (browser.storage?.onChanged) {
+      browser.storage.onChanged.addListener(handleStorageChange);
+      return () => browser.storage.onChanged.removeListener(handleStorageChange);
     }
   }, []);
 
@@ -363,7 +384,7 @@ export const HudOverlay: React.FC = () => {
       if (isUserTyping()) return;
 
       // Toggle HUD
-      if (matchesShortcut(e, shortcutStr)) {
+      if (matchesShortcut(e, shortcutToggle)) {
         e.preventDefault();
         e.stopPropagation();
         setIsOpen((prev) => {
@@ -398,8 +419,8 @@ export const HudOverlay: React.FC = () => {
         }
       }
 
-      // Up / Down / J / K navigation
-      if (e.key === 'ArrowDown' || e.key.toLowerCase() === 'j') {
+      // Next node (J or custom shortcut)
+      if (matchesShortcut(e, shortcutNextNode || 'J')) {
         e.preventDefault();
         e.stopPropagation();
         setSelectedIndex((prev) => {
@@ -407,7 +428,9 @@ export const HudOverlay: React.FC = () => {
           handleJump(summary.highlights[next], next);
           return next;
         });
-      } else if (e.key === 'ArrowUp' || e.key.toLowerCase() === 'k') {
+      }
+      // Prev node (K or custom shortcut)
+      else if (matchesShortcut(e, shortcutPrevNode || 'K')) {
         e.preventDefault();
         e.stopPropagation();
         setSelectedIndex((prev) => {
@@ -416,11 +439,37 @@ export const HudOverlay: React.FC = () => {
           return next;
         });
       }
+      // Toggle Quotes of current node (O or custom shortcut)
+      else if (matchesShortcut(e, shortcutToggleQuotes || 'O')) {
+        e.preventDefault();
+        e.stopPropagation();
+        const currentItem = summary.highlights[selectedIndex];
+        if (currentItem && currentItem.originalQuotes && currentItem.originalQuotes.length > 0) {
+          const targetId = currentItem.id;
+          setExpandedQuoteIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(targetId)) next.delete(targetId);
+            else next.add(targetId);
+            return next;
+          });
+        }
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
-  }, [isOpen, summary, loading, shortcutStr, loadSummaryForCurrentVideo, handleJump]);
+  }, [
+    isOpen,
+    summary,
+    loading,
+    shortcutToggle,
+    shortcutPrevNode,
+    shortcutNextNode,
+    shortcutToggleQuotes,
+    selectedIndex,
+    loadSummaryForCurrentVideo,
+    handleJump,
+  ]);
 
   if (!isOpen) return null;
 
@@ -799,9 +848,19 @@ export const HudOverlay: React.FC = () => {
                   isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
                 }`}
               >
-                J/K
+                {shortcutPrevNode || 'K'}/{shortcutNextNode || 'J'}
               </kbd>{' '}
               选择
+            </span>
+            <span>
+              <kbd
+                className={`px-1 py-0.5 rounded border ${
+                  isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
+                }`}
+              >
+                {shortcutToggleQuotes || 'O'}
+              </kbd>{' '}
+              字幕
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -811,7 +870,7 @@ export const HudOverlay: React.FC = () => {
                   isDark ? 'bg-slate-800 border-slate-700 text-slate-300' : 'bg-white border-slate-200 text-slate-700'
                 }`}
               >
-                {shortcutStr}
+                {shortcutToggle}
               </kbd>{' '}
               显隐
             </span>
