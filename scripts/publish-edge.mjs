@@ -83,9 +83,11 @@ async function publishToEdge() {
   console.log('✅ Upload initiated successfully!');
   console.log(`   Operation tracking URL: ${operationLocation || operationId}`);
 
-  // Step 2: Poll operation status until Succeeded
-  console.log('\n⏳ Step 2: Verifying package status with Microsoft validation servers...');
-  const checkStatusUrl = operationLocation || `${uploadUrl}/operations/${operationId}`;
+  const opId = (operationLocation && !operationLocation.startsWith('http')) ? operationLocation : (operationId || operationLocation);
+  const checkStatusUrl = (operationLocation && operationLocation.startsWith('http'))
+    ? operationLocation
+    : `${uploadUrl}/operations/${opId}`;
+  console.log(`   Status polling endpoint: ${checkStatusUrl}`);
   const maxAttempts = 30; // 30 * 6s = 3 minutes max
   let isVerified = false;
 
