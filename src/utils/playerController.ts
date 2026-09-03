@@ -36,6 +36,9 @@ export function getPlayerContainer(): HTMLElement | null {
     (document as any).mozFullScreenElement;
 
   if (fsEl && fsEl instanceof HTMLElement) {
+    if (fsEl.tagName.toLowerCase() === 'video' && fsEl.parentElement) {
+      return fsEl.parentElement;
+    }
     return fsEl;
   }
 

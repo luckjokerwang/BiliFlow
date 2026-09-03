@@ -158,6 +158,13 @@ export const HudOverlay: React.FC = () => {
     setTimeout(() => setToastMsg(null), 2500);
   };
 
+  // Ensure host element is attached to active player / fullscreen container when HUD opens
+  useEffect(() => {
+    if (isOpen) {
+      window.dispatchEvent(new CustomEvent('biliflow:ensure-mount'));
+    }
+  }, [isOpen]);
+
   // Open settings page safely via Background
   const handleOpenOptions = () => {
     browser.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
@@ -464,6 +471,7 @@ export const HudOverlay: React.FC = () => {
       if (matchesShortcut(e, shortcutToggle)) {
         e.preventDefault();
         e.stopPropagation();
+        window.dispatchEvent(new CustomEvent('biliflow:ensure-mount'));
         setIsOpen((prev) => {
           const next = !prev;
           if (next && !summary && !loading) {
