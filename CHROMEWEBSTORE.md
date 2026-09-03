@@ -4,7 +4,7 @@
 
 - **Name**: BiliFlow - 极速心流 B站视频总结与键盘导航
 - **Short Name**: BiliFlow
-- **Version**: 1.1.5
+- **Version**: 1.1.6
 - **Primary Language**: 中文 (简体) / Chinese (Simplified)
 - **Category**: Productivity / Accessibility
 - **Single Purpose**: 提供无需鼠标打扰的极速键盘流 B 站视频核心内容提取与时间戳秒级跳转。
