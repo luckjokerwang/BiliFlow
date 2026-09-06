@@ -90,6 +90,19 @@ export const App: React.FC = () => {
     });
   };
 
+  const handleSwitchFlag = async (key: keyof UserSettings, currentVal: boolean) => {
+    const updated: UserSettings = {
+      ...settings,
+      [key]: !currentVal,
+    };
+    setSettings(updated);
+
+    await browser.runtime.sendMessage({
+      type: 'SAVE_SETTINGS',
+      payload: updated,
+    });
+  };
+
   const isDark = settings.theme !== 'light';
 
   if (loading) {
@@ -132,7 +145,7 @@ export const App: React.FC = () => {
             >
               BiliFlow
               <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                v1.1.8
+                v2.0.0
               </span>
             </h1>
             <p className="text-[10px] text-slate-400">极速心流 · B站视频提炼</p>
@@ -207,6 +220,43 @@ export const App: React.FC = () => {
             </option>
           ))}
         </select>
+      </div>
+
+      {/* Feature Flags Quick Toggles */}
+      <div
+        className={`p-2.5 rounded-xl border flex items-center justify-between text-xs ${
+          isDark ? 'bg-slate-800/50 border-slate-700/60' : 'bg-slate-50 border-slate-200'
+        }`}
+      >
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={settings.autoSummarize}
+            onChange={() => handleSwitchFlag('autoSummarize', settings.autoSummarize)}
+            className="accent-sky-500 rounded cursor-pointer"
+          />
+          <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>自动提炼</span>
+        </label>
+
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={settings.showTimelineMarkers}
+            onChange={() => handleSwitchFlag('showTimelineMarkers', settings.showTimelineMarkers)}
+            className="accent-sky-500 rounded cursor-pointer"
+          />
+          <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>进度打点</span>
+        </label>
+
+        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={settings.showHoverCard}
+            onChange={() => handleSwitchFlag('showHoverCard', settings.showHoverCard)}
+            className="accent-sky-500 rounded cursor-pointer"
+          />
+          <span className={isDark ? 'text-slate-300' : 'text-slate-700'}>悬浮卡片</span>
+        </label>
       </div>
 
       {/* Big Action: Open Full Options Page */}

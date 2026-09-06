@@ -90,18 +90,7 @@ export interface ProviderConfig {
 
 export type ThemeMode = 'dark' | 'light';
 
-export interface UserSettings {
-  providers: ProviderConfig[];
-  activeProviderId: string;
-  activeModel?: string;
-  enableFallback?: boolean;
-  autoFetch?: boolean;
-  shortcutToggle?: string;
-  shortcutPrevNode?: string;
-  shortcutNextNode?: string;
-  shortcutToggleQuotes?: string;
-  theme?: ThemeMode;
-}
+export * from './settings';
 
 // ------------------------------------------
 // Message Passing Contracts

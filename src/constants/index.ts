@@ -120,7 +120,10 @@ export const DEFAULT_PROVIDERS: ProviderConfig[] = [
   },
 ];
 
+import { DEFAULT_FEATURE_FLAGS } from '../types/settings';
+
 export const DEFAULT_SETTINGS: UserSettings = {
+  ...DEFAULT_FEATURE_FLAGS,
   providers: DEFAULT_PROVIDERS,
   activeProviderId: 'deepseek',
   activeModel: '',

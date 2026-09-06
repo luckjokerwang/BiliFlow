@@ -8,6 +8,11 @@ import {
   fetchRemoteModels,
   testProviderConnection,
 } from '../services/llmService';
+import {
+  getStoredSettings,
+  saveStoredSettings,
+  mergeSettingsWithDefaults,
+} from '../services/settingsService';
 
 export default defineBackground(() => {
   console.log('[BiliFlow] Background Service Worker initialized.');
@@ -140,17 +145,12 @@ export default defineBackground(() => {
         }
 
         case 'GET_SETTINGS': {
-          const res = await browser.storage.local.get('user_settings');
-          return { success: true, data: (res.user_settings as UserSettings) || DEFAULT_SETTINGS };
+          const settings = await getStoredSettings();
+          return { success: true, data: settings };
         }
 
         case 'SAVE_SETTINGS': {
-          const curRes = await browser.storage.local.get('user_settings');
-          const updated: UserSettings = {
-            ...((curRes.user_settings as UserSettings) || DEFAULT_SETTINGS),
-            ...message.payload,
-          };
-          await browser.storage.local.set({ user_settings: updated });
+          const updated = await saveStoredSettings(message.payload || {});
           return { success: true, data: updated };
         }
 

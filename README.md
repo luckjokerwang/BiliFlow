@@ -6,7 +6,7 @@
 
 ### **无需鼠标、不占屏幕 · 键盘流一键呼出 HUD 毫秒级直达亮点的 B 站 AI 助手**
 
-[![Version](https://img.shields.io/badge/version-1.1.8-00AEEC.svg?style=flat-square)](https://github.com/luckjokerwang/BiliFlow/releases)
+[![Version](https://img.shields.io/badge/version-2.0.0-00AEEC.svg?style=flat-square)](https://github.com/luckjokerwang/BiliFlow/releases)
 [![Manifest V3](https://img.shields.io/badge/Chrome%20Extension-Manifest%20V3-blue.svg?style=flat-square)](https://developer.chrome.com/docs/extensions/mv3/)
 [![Firefox MV2/MV3](https://img.shields.io/badge/Firefox%20Addon-Supported-orange.svg?style=flat-square)](https://addons.mozilla.org/)
 [![License](https://img.shields.io/badge/license-MIT-emerald.svg?style=flat-square)](LICENSE)
@@ -66,7 +66,14 @@
 * 提供 **Soft Paper 护眼暖白** 与 **深邃暗夜** 双主题；
 * HUD 浮层与设置中心注入极简隐形滚动条（Invisible Scrollbar），消除突兀滑槽，保留 100% 流畅滚动。
 
+### 8. 🎛️ 统一功能开关矩阵与自动化控制中心 (v2.0 里程碑)
+* **按需自动化掌控**：自由切换“进入页面自动总结”与“纯手动触发”，独创**最小视频时长阈值过滤**（默认过滤 < 60s 短视频），短视频切片不触发，告别 Token 滥耗；
+* **播放器模块极致解耦**：进度条高能打点与伴随悬浮 AI 要点卡片支持分别独立按需开关，清爽还给原生播放器；
+* **毫秒级热更新广播**：在设置页或 Popup 调整任何开关，所有打开的 B 站播放页无刷新秒级热响应；
+* **工业级 Headless Hooks 架构**：彻底解耦 1000+ 行巨石代码，内置 `AbortController` 拦截切集竞态，内存泄漏彻底归零。
+
 ---
+
 
 ## ⌨️ 键盘流全景速查
 
