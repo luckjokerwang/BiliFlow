@@ -1,0 +1,64 @@
+name: Publish to Firefox Add-ons & GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  release-and-publish:
+    name: Build, Release & Publish to Firefox
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run unit tests
+        run: npm run test
+
+      - name: Build and package all distributions
+        run: npm run zip:all
+
+      - name: Locate distribution packages
+        id: locate_packages
+        run: |
+          FIREFOX_ZIP=$(ls .output/biliflow-*-firefox.zip | head -n 1)
+          SOURCES_ZIP=$(ls .output/biliflow-*-sources.zip | head -n 1)
+          echo "firefox_zip=$FIREFOX_ZIP" >> $GITHUB_OUTPUT
+          echo "sources_zip=$SOURCES_ZIP" >> $GITHUB_OUTPUT
+          echo "Found Firefox zip: $FIREFOX_ZIP"
+          echo "Found Sources zip: $SOURCES_ZIP"
+
+      - name: Create GitHub Release & Upload Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            .output/biliflow-*-chrome.zip
+            .output/biliflow-*-firefox.zip
+            .output/biliflow-*-sources.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload and Submit to Firefox Add-ons (AMO)
+        uses: browser-actions/release-firefox-addon@v1
+        with:
+          addon-id: 'biliflow@luckjokerwang'
+          addon-path: ${{ steps.locate_packages.outputs.firefox_zip }}
+          source-path: ${{ steps.locate_packages.outputs.sources_zip }}
+          channel: 'listed'
+          auth-api-issuer: ${{ secrets.AMO_JWT_ISSUER }}
+          auth-api-secret: ${{ secrets.AMO_JWT_SECRET }}
