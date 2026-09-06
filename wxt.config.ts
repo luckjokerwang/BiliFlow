@@ -39,7 +39,7 @@ export default defineConfig({
   manifest: {
     name: 'BiliFlow',
     description: '极速心流 · B站视频总结与键盘导航 AI 助手',
-    version: '2.0.0',
+    version: '2.0.1',
     browser_specific_settings: {
       gecko: {
         id: 'biliflow@luckjokerwang',

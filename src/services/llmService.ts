@@ -259,8 +259,23 @@ export async function generateVideoSummary(params: {
     throw new Error(`厂商【${provider.name}】未配置 API Key，请打开设置中心填入 Key。`);
   }
 
-  const chunks = chunkSubtitles(subtitles, { maxDurationSeconds: 25, maxCharCount: 200 });
+  if (!Array.isArray(subtitles) || subtitles.length === 0) {
+    throw new Error('该视频未包含任何官方字幕或 AI 生成字幕，无法提炼要点。');
+  }
+
+  const validSubtitles = subtitles.filter(
+    (item) => item && item.content && item.content.trim().length > 0
+  );
+  if (validSubtitles.length === 0) {
+    throw new Error('该视频未包含任何有效字幕文本，无法提炼要点。');
+  }
+
+  const chunks = chunkSubtitles(validSubtitles, { maxDurationSeconds: 25, maxCharCount: 200 });
   const formattedTranscript = formatTranscriptForPrompt(chunks);
+
+  if (!formattedTranscript || !formattedTranscript.trim()) {
+    throw new Error('格式化后的字幕内容为空，无法进行 AI 提炼。');
+  }
 
   const userPrompt = `
 【视频标题】：${title}

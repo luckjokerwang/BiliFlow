@@ -153,7 +153,11 @@ export function useAutoSummary({
 
         if (abortController.signal.aborted) return;
 
-        if (!subRes.success || !subRes.data) {
+        const validSubtitles = Array.isArray(subRes.data)
+          ? subRes.data.filter((item) => item && item.content && item.content.trim().length > 0)
+          : [];
+
+        if (!subRes.success || validSubtitles.length === 0) {
           throw new Error(subRes.error || '该视频未包含任何官方字幕或 AI 生成字幕，无法提炼要点。');
         }
 

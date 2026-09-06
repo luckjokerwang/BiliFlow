@@ -125,12 +125,23 @@ export async function fetchBilibiliSubtitles(params: {
     throw new Error('获取到的字幕内容为空。');
   }
 
-  const mappedItems: BiliRawSubtitleItem[] = rawBody.map((item: any) => ({
-    from: Number(item.from) || 0,
-    to: Number(item.to) || 0,
-    content: String(item.content || ''),
-  }));
+  const mappedItems: BiliRawSubtitleItem[] = rawBody
+    .map((item: any) => ({
+      from: Number(item.from) || 0,
+      to: Number(item.to) || 0,
+      content: String(item.content || '').trim(),
+    }))
+    .filter((item) => item.content.length > 0);
+
+  if (mappedItems.length === 0) {
+    throw new Error('获取到的字幕内容为空。');
+  }
 
   // 5. Apply Sentence Fusion to create coherent natural sentences and save tokens
-  return fuseSubtitles(mappedItems);
+  const fused = fuseSubtitles(mappedItems);
+  if (!fused || fused.length === 0 || fused.every((item) => !item.content.trim())) {
+    throw new Error('该视频未包含任何有效字幕文本，无法提炼要点。');
+  }
+
+  return fused;
 }

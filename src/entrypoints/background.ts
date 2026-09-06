@@ -112,6 +112,13 @@ export default defineBackground(() => {
 
         case 'GENERATE_SUMMARY': {
           const { bvid, cid, title, subtitles } = message.payload;
+          if (!Array.isArray(subtitles) || subtitles.length === 0) {
+            return {
+              success: false,
+              error: '该视频未包含任何官方字幕或 AI 生成字幕，无法提炼要点。',
+            };
+          }
+
           const settingsRes = await browser.storage.local.get('user_settings');
           const settings: UserSettings = (settingsRes.user_settings as UserSettings) || DEFAULT_SETTINGS;
 
