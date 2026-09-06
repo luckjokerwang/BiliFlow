@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   calculateTimelineMarkers,
+  calculateTimelineSegments,
   findActiveHighlightIndex,
   findActiveQuoteIndex,
 } from '../src/utils/timelineCalculator';
@@ -62,6 +63,32 @@ describe('calculateTimelineMarkers', () => {
     expect(calculateTimelineMarkers(mockHighlights, -10)).toEqual([]);
     expect(calculateTimelineMarkers(mockHighlights, NaN)).toEqual([]);
     expect(calculateTimelineMarkers([], 500)).toEqual([]);
+  });
+
+  it('correctly parses string timestamps (e.g. from legacy cache or LLM output)', () => {
+    const stringHighlights: any[] = [
+      {
+        id: 's1',
+        title: '利差规律失效',
+        timestamp: '01:37',
+        timestampStr: '01:37',
+      },
+      {
+        id: 's2',
+        title: '为何不是广场协议2.0',
+        timestamp: '13:59',
+        timestampStr: '13:59',
+      },
+    ];
+
+    const markers = calculateTimelineMarkers(stringHighlights, 1015);
+    expect(markers).toHaveLength(2);
+    // 97 / 1015 * 100 = 9.56%
+    expect(markers[0].percentage).toBeCloseTo(9.56, 1);
+    expect(markers[0].timestampSec).toBe(97);
+    // 839 / 1015 * 100 = 82.66%
+    expect(markers[1].percentage).toBeCloseTo(82.66, 1);
+    expect(markers[1].timestampSec).toBe(839);
   });
 
   it('clamps markers within valid progress bar bounds (0.8% ~ 99.2%)', () => {
@@ -156,5 +183,104 @@ describe('findActiveQuoteIndex', () => {
     expect(findActiveQuoteIndex(quotes, 39)).toBe(1);
     expect(findActiveQuoteIndex(quotes, 40)).toBe(2);
     expect(findActiveQuoteIndex(quotes, 100)).toBe(2);
+  });
+});
+
+describe('calculateTimelineSegments', () => {
+  const mockMarkers = [
+    {
+      id: 'm1',
+      index: 1,
+      timestampSec: 97, // 01:37
+      timestampStr: '01:37',
+      title: '利差规律失效',
+      percentage: 9.56,
+      keyPoint: '核心论点1',
+    },
+    {
+      id: 'm2',
+      index: 2,
+      timestampSec: 195, // 03:15
+      timestampStr: '03:15',
+      title: '财政风险与套息交易',
+      percentage: 19.21,
+      keyPoint: '核心论点2',
+    },
+    {
+      id: 'm3',
+      index: 3,
+      timestampSec: 839, // 13:59
+      timestampStr: '13:59',
+      title: '为何不是广场协议2.0',
+      percentage: 82.66,
+      keyPoint: '核心论点3',
+    },
+  ];
+
+  it('handles empty markers or invalid duration', () => {
+    expect(calculateTimelineSegments([], 1000)).toEqual([]);
+    expect(calculateTimelineSegments(mockMarkers, 0)).toEqual([]);
+    expect(calculateTimelineSegments(mockMarkers, -10)).toEqual([]);
+  });
+
+  it('generates intro segment when first marker starts after 15s', () => {
+    const segments = calculateTimelineSegments(mockMarkers, 1015);
+    expect(segments.length).toBe(4); // intro + m1 + m2 + m3
+
+    // Intro segment
+    expect(segments[0].id).toBe('segment-0');
+    expect(segments[0].index).toBe(0);
+    expect(segments[0].startSec).toBe(0);
+    expect(segments[0].endSec).toBe(97);
+    expect(segments[0].title).toBe('引言 / 片头概述');
+    expect(segments[0].timeRangeStr).toBe('00:00 ~ 01:37');
+
+    // Segment 1 (M1 to M2)
+    expect(segments[1].index).toBe(1);
+    expect(segments[1].startSec).toBe(97);
+    expect(segments[1].endSec).toBe(195);
+    expect(segments[1].title).toBe('利差规律失效');
+    expect(segments[1].timeRangeStr).toBe('01:37 ~ 03:15');
+
+    // Segment 2 (M2 to M3)
+    expect(segments[2].index).toBe(2);
+    expect(segments[2].startSec).toBe(195);
+    expect(segments[2].endSec).toBe(839);
+    expect(segments[2].title).toBe('财政风险与套息交易');
+    expect(segments[2].timeRangeStr).toBe('03:15 ~ 13:59');
+
+    // Segment 3 (M3 to end)
+    expect(segments[3].index).toBe(3);
+    expect(segments[3].startSec).toBe(839);
+    expect(segments[3].endSec).toBe(1015);
+    expect(segments[3].title).toBe('为何不是广场协议2.0');
+    expect(segments[3].timeRangeStr).toBe('13:59 ~ 16:55');
+  });
+
+  it('does not generate intro segment when first marker starts at beginning', () => {
+    const earlyMarkers = [
+      {
+        id: 'm1',
+        index: 1,
+        timestampSec: 5,
+        timestampStr: '00:05',
+        title: '开门见山',
+        percentage: 5,
+      },
+      {
+        id: 'm2',
+        index: 2,
+        timestampSec: 60,
+        timestampStr: '01:00',
+        title: '第二节',
+        percentage: 60,
+      },
+    ];
+
+    const segments = calculateTimelineSegments(earlyMarkers, 100);
+    expect(segments.length).toBe(2);
+    expect(segments[0].index).toBe(1);
+    expect(segments[0].startSec).toBe(0);
+    expect(segments[0].endSec).toBe(60);
   });
 });

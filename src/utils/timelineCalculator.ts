@@ -1,4 +1,5 @@
 import { HighlightItem, OriginalQuote } from '../types';
+import { parseTimestamp, formatSeconds } from './timeParser';
 
 export interface TimelineMarker {
   id: string;
@@ -9,6 +10,19 @@ export interface TimelineMarker {
   keyPoint?: string;
   percentage: number; // 0 to 100
   clusterGroup?: number;
+}
+
+export interface TimelineSegment {
+  id: string;
+  index: number;
+  startSec: number;
+  endSec: number;
+  startPercent: number; // 0 to 100
+  endPercent: number;   // 0 to 100
+  widthPercent: number; // endPercent - startPercent
+  title: string;
+  keyPoint?: string;
+  timeRangeStr: string; // e.g. "01:37 ~ 03:15"
 }
 
 /**
@@ -28,7 +42,19 @@ export function calculateTimelineMarkers(
 
   const markers: TimelineMarker[] = highlights
     .map((h, idx) => {
-      const rawSec = typeof h.timestamp === 'number' ? h.timestamp : (h.timestampSec ?? 0);
+      let rawSec: number;
+      if (typeof h.timestamp === 'number' && !isNaN(h.timestamp)) {
+        rawSec = h.timestamp;
+      } else if (typeof h.timestampSec === 'number' && !isNaN(h.timestampSec)) {
+        rawSec = h.timestampSec;
+      } else if (typeof h.timestamp === 'string') {
+        rawSec = parseTimestamp(h.timestamp);
+      } else if (typeof h.timestampStr === 'string') {
+        rawSec = parseTimestamp(h.timestampStr);
+      } else {
+        rawSec = 0;
+      }
+
       if (isNaN(rawSec) || rawSec < 0) return null;
 
       const clampedSec = Math.max(0, Math.min(rawSec, videoDurationSec));
@@ -40,7 +66,7 @@ export function calculateTimelineMarkers(
         id: String(h.id || `marker-${idx + 1}`),
         index: idx + 1,
         timestampSec: clampedSec,
-        timestampStr: h.timestampStr,
+        timestampStr: h.timestampStr || formatSeconds(clampedSec),
         title: h.title,
         keyPoint: h.keyPoint,
         percentage,
@@ -113,4 +139,63 @@ export function findActiveQuoteIndex(
     }
   }
   return activeIndex;
+}
+
+/**
+ * Calculates continuous playback segments from timeline markers and total video duration.
+ */
+export function calculateTimelineSegments(
+  markers: TimelineMarker[],
+  videoDurationSec: number
+): TimelineSegment[] {
+  if (!markers || markers.length === 0 || !videoDurationSec || videoDurationSec <= 0) {
+    return [];
+  }
+
+  const sortedMarkers = [...markers].sort((a, b) => a.timestampSec - b.timestampSec);
+  const segments: TimelineSegment[] = [];
+
+  // If the first marker begins past 15s, create an intro segment
+  const first = sortedMarkers[0];
+  if (first.timestampSec > 15) {
+    const endPercent = (first.timestampSec / videoDurationSec) * 100;
+    segments.push({
+      id: 'segment-0',
+      index: 0,
+      startSec: 0,
+      endSec: first.timestampSec,
+      startPercent: 0,
+      endPercent: Number(endPercent.toFixed(2)),
+      widthPercent: Number(endPercent.toFixed(2)),
+      title: '引言 / 片头概述',
+      timeRangeStr: `00:00 ~ ${first.timestampStr}`,
+    });
+  }
+
+  for (let i = 0; i < sortedMarkers.length; i++) {
+    const current = sortedMarkers[i];
+    const isFirstSegment = i === 0 && segments.length === 0;
+    const startSec = isFirstSegment ? 0 : current.timestampSec;
+    const startPercent = isFirstSegment ? 0 : (startSec / videoDurationSec) * 100;
+
+    const next = sortedMarkers[i + 1];
+    const endSec = next ? next.timestampSec : videoDurationSec;
+    const endPercent = next ? (endSec / videoDurationSec) * 100 : 100;
+    const widthPercent = Math.max(0, endPercent - startPercent);
+
+    segments.push({
+      id: `segment-${current.index}`,
+      index: current.index,
+      startSec,
+      endSec,
+      startPercent: Number(startPercent.toFixed(2)),
+      endPercent: Number(endPercent.toFixed(2)),
+      widthPercent: Number(widthPercent.toFixed(2)),
+      title: current.title,
+      keyPoint: current.keyPoint,
+      timeRangeStr: `${formatSeconds(startSec)} ~ ${formatSeconds(endSec)}`,
+    });
+  }
+
+  return segments;
 }

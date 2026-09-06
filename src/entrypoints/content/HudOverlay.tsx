@@ -38,6 +38,7 @@ import {
 } from '../../utils/playerController';
 import {
   calculateTimelineMarkers,
+  calculateTimelineSegments,
   findActiveHighlightIndex,
   findActiveQuoteIndex,
 } from '../../utils/timelineCalculator';
@@ -420,7 +421,8 @@ export const HudOverlay: React.FC = () => {
         const duration = getVideoDuration();
         if (duration > 0) {
           const markers = calculateTimelineMarkers(summary.highlights, duration);
-          renderTimelineMarkers(markers, (sec) => {
+          const segments = calculateTimelineSegments(markers, duration);
+          renderTimelineMarkers(markers, segments, duration, (sec) => {
             seekToSeconds(sec);
             showToast('已跳转至选定亮点');
           });

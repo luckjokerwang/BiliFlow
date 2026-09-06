@@ -53,10 +53,26 @@ export function getPlayerContainer(): HTMLElement | null {
 }
 
 export function getProgressBarContainer(): HTMLElement | null {
+  // Target the unscaled 100%-width track container that wraps the progress schedule.
+  // In Bilibili player:
+  // .bpx-player-progress-schedule is the scaled progress element;
+  // Its parent is the exact unscaled track container sharing the identical vertical and horizontal alignment.
+  const schedule = document.querySelector<HTMLElement>('.bpx-player-progress-schedule');
+  if (schedule && schedule.parentElement) {
+    return schedule.parentElement;
+  }
+
+  const squirtleSchedule = document.querySelector<HTMLElement>('.squirtle-progress-schedule');
+  if (squirtleSchedule && squirtleSchedule.parentElement) {
+    return squirtleSchedule.parentElement;
+  }
+
   return (
-    document.querySelector<HTMLElement>('.bpx-player-progress-schedule') ||
+    document.querySelector<HTMLElement>('.bpx-player-progress-schedule-wrap') ||
+    document.querySelector<HTMLElement>('.bpx-player-progress-wrap') ||
     document.querySelector<HTMLElement>('.bpx-player-progress') ||
-    document.querySelector<HTMLElement>('.squirtle-progress-schedule') ||
+    document.querySelector<HTMLElement>('.squirtle-progress-wrap') ||
+    document.querySelector<HTMLElement>('.squirtle-progress') ||
     document.querySelector<HTMLElement>('.bilibili-player-video-progress-slider')
   );
 }
