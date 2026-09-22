@@ -5,6 +5,7 @@ import { defineContentScript } from 'wxt/sandbox';
 import { createShadowRootUi } from 'wxt/client';
 import { HudOverlay } from './HudOverlay';
 import { getPlayerContainer } from '../../utils/playerController';
+import { setupNativeNoteTimestampClickListener } from '../../utils/biliNoteDomController';
 
 export default defineContentScript({
   matches: ['*://*.bilibili.com/video/*'],
@@ -95,8 +96,12 @@ export default defineContentScript({
       }
     }, 1000);
 
+    // 5. Global timestamp click listener for jumping video from Bilibili note editor
+    const cleanupTimestampClicks = setupNativeNoteTimestampClickListener();
+
     ctx.onInvalidated(() => {
       clearInterval(mountHeartbeat);
+      cleanupTimestampClicks();
       document.removeEventListener('fullscreenchange', handleFullscreenTransition);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenTransition);
       document.removeEventListener('mozfullscreenchange', handleFullscreenTransition);

@@ -69,7 +69,9 @@ describe('biliNoteFormatter', () => {
   describe('formatCardToNoteHtml', () => {
     it('should format a highlight card without annotation into clean HTML', () => {
       const html = formatCardToNoteHtml(sampleHighlight);
-      expect(html).toContain('<p><strong>[02:05] 状态管理反模式</strong></p>');
+      expect(html).toContain('🚩 [02:05]');
+      expect(html).toContain('data-seconds="125"');
+      expect(html).toContain('状态管理反模式');
       expect(html).toContain('<blockquote>🤖 视频观点：避免将所有临时表单状态无脑塞入全局 Store。</blockquote>');
       expect(html).not.toContain('💬');
       expect(html).toContain('<p><br></p>');
@@ -77,7 +79,9 @@ describe('biliNoteFormatter', () => {
 
     it('should format a highlight card with user annotation included', () => {
       const html = formatCardToNoteHtml(sampleHighlight, sampleAnnotation);
-      expect(html).toContain('<p><strong>[02:05] 状态管理反模式</strong></p>');
+      expect(html).toContain('🚩 [02:05]');
+      expect(html).toContain('data-seconds="125"');
+      expect(html).toContain('状态管理反模式');
       expect(html).toContain('<blockquote>🤖 视频观点：避免将所有临时表单状态无脑塞入全局 Store。</blockquote>');
       expect(html).toContain('<p>💬 <strong>💡 启发</strong>：我们在结算页就犯了这个错误，周五重构一下。</p>');
     });

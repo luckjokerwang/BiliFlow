@@ -29,19 +29,26 @@ export function escapeHtml(str: string): string {
 /**
  * Formats a single highlight card and optional user annotation into clean semantic HTML
  * for direct insertion into Bilibili's Quill editor (.ql-editor).
+ * Features a clickable, Bilibili-themed timestamp tag with data-seconds for instant video jump.
  */
 export function formatCardToNoteHtml(
   highlight: HighlightItem,
   annotation?: UserAnnotation
 ): string {
   const time = highlight.timestampStr || '00:00';
+  const sec =
+    typeof highlight.timestamp === 'number'
+      ? highlight.timestamp
+      : (highlight.timestampSec ?? 0);
   const title = escapeHtml(highlight.title);
   const keyPoint = escapeHtml(highlight.keyPoint || '');
 
   const parts: string[] = [];
 
-  // 1. Chapter / Timestamp heading
-  parts.push(`<p><strong>[${time}] ${title}</strong></p>`);
+  // 1. Chapter / Clickable Timestamp heading
+  parts.push(
+    `<p><strong class="biliflow-timestamp" data-seconds="${sec}" style="cursor:pointer; color:#00aeec; text-decoration:none;">🚩 [${time}]</strong> <strong>${title}</strong></p>`
+  );
 
   // 2. AI Fact Quote block
   if (keyPoint) {

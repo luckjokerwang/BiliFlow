@@ -15,28 +15,151 @@ export class BiliNoteDomController {
   }
 
   /**
+   * Comprehensive locator for Bilibili's "记笔记" button across all layouts
+   * (Normal page, theater mode, fullscreen, and responsive).
+   */
+  static findNativeNoteButton(): HTMLElement | null {
+    // 1. Check known stable selectors
+    const direct = document.querySelector<HTMLElement>(
+      '.video-toolbar-right-note, .toolbar-right-note, .bpx-player-ctrl-note, .video-note-btn, [title*="记笔记"], [aria-label*="记笔记"]'
+    );
+    if (direct) return direct;
+
+    // 2. Search within toolbar containers for text "记笔记"
+    const toolbars = document.querySelectorAll<HTMLElement>(
+      '.video-toolbar-v1, .video-toolbar, #arc_toolbar_report, .video-toolbar-container, .bpx-player-control-bottom-right'
+    );
+    for (const tb of toolbars) {
+      const candidates = tb.querySelectorAll<HTMLElement>('*');
+      for (const el of candidates) {
+        if (el.textContent?.trim() === '记笔记' && el.children.length === 0) {
+          return el.closest<HTMLElement>('button, div, span, a') || el;
+        }
+      }
+    }
+
+    // 3. Document-wide scan for buttons or clickable divs containing "记笔记"
+    const all = document.querySelectorAll<HTMLElement>('button, div[role="button"], a, span');
+    for (const el of all) {
+      if (el.textContent?.trim() === '记笔记' && el.children.length <= 1) {
+        return el;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Ensures Bilibili's native note drawer is opened.
    * If closed, simulates a click on the official "记笔记" button and awaits editor mounting.
    */
   static async ensureNativeNoteOpen(): Promise<boolean> {
     if (this.isNativeNoteOpen()) return true;
 
-    // Search for Bilibili's official note trigger button
-    const noteBtn = document.querySelector<HTMLElement>(
-      '.video-toolbar-right-note, .toolbar-right-note, [title*="记笔记"], .bpx-player-ctrl-note, .video-toolbar-v1 .toolbar-right-note'
-    );
-
+    const noteBtn = this.findNativeNoteButton();
     if (noteBtn) {
+      noteBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
       noteBtn.click();
 
-      // Poll until .ql-editor is mounted (up to 2.5s)
-      for (let i = 0; i < 25; i++) {
+      // Poll until .ql-editor is mounted (up to 3 seconds)
+      for (let i = 0; i < 30; i++) {
         await new Promise((r) => setTimeout(r, 100));
         if (this.isNativeNoteOpen()) return true;
       }
     }
 
     return false;
+  }
+
+  /**
+   * Finds the native Blue Flag (timestamp) and Yellow Camera (screenshot) buttons
+   * in Bilibili's Quill toolbar by attributes, classes, and computed styles.
+   */
+  static findToolbarButtons(): {
+    flagBtn: HTMLElement | null;
+    cameraBtn: HTMLElement | null;
+  } {
+    const toolbars = document.querySelectorAll<HTMLElement>(
+      '.ql-toolbar, .note-editor-toolbar, .bili-note-panel .toolbar, .bili-note .toolbar'
+    );
+
+    let flagBtn: HTMLElement | null = null;
+    let cameraBtn: HTMLElement | null = null;
+
+    for (const tb of toolbars) {
+      const buttons = Array.from(
+        tb.querySelectorAll<HTMLElement>('button, .ql-picker, div[role="button"], span')
+      );
+
+      for (const btn of buttons) {
+        const title = (btn.getAttribute('title') || btn.getAttribute('aria-label') || '').toLowerCase();
+        const className = (btn.className || '').toString().toLowerCase();
+        const html = btn.innerHTML.toLowerCase();
+
+        // 1. Flag button matching (Time / Tag)
+        if (
+          !flagBtn &&
+          (title.includes('时间') ||
+            title.includes('标记') ||
+            title.includes('flag') ||
+            title.includes('tag') ||
+            className.includes('flag') ||
+            className.includes('tag') ||
+            html.includes('flag'))
+        ) {
+          flagBtn = btn;
+        }
+
+        // 2. Camera button matching (Screenshot)
+        if (
+          !cameraBtn &&
+          (title.includes('截图') ||
+            title.includes('截取') ||
+            title.includes('camera') ||
+            title.includes('screenshot') ||
+            className.includes('camera') ||
+            className.includes('screenshot') ||
+            html.includes('camera') ||
+            html.includes('screenshot'))
+        ) {
+          cameraBtn = btn;
+        }
+      }
+
+      // 3. Fallback heuristic: In Bilibili's toolbar, Camera is yellow and Flag is blue!
+      if (!flagBtn || !cameraBtn) {
+        for (const btn of buttons) {
+          try {
+            const style = window.getComputedStyle(btn);
+            const bg = style.backgroundColor;
+            // Yellow / Orange: Camera
+            if (
+              !cameraBtn &&
+              (bg.includes('250, 173, 20') ||
+                bg.includes('230, 162, 60') ||
+                bg.includes('245, 158, 11') ||
+                bg.includes('orange') ||
+                bg.includes('yellow'))
+            ) {
+              cameraBtn = btn;
+            }
+            // Blue / Cyan: Flag
+            if (
+              !flagBtn &&
+              (bg.includes('0, 161, 214') ||
+                bg.includes('64, 158, 255') ||
+                bg.includes('14, 165, 233') ||
+                bg.includes('blue') ||
+                bg.includes('cyan'))
+            ) {
+              flagBtn = btn;
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    return { flagBtn, cameraBtn };
   }
 
   /**
@@ -68,10 +191,7 @@ export class BiliNoteDomController {
    * Triggers Bilibili's native timestamp flag button in the note toolbar.
    */
   static triggerNativeTimestamp(): boolean {
-    const flagBtn = document.querySelector<HTMLElement>(
-      '.bili-note-panel [title*="时间"], .bili-note [title*="时间"], .note-editor-toolbar [title*="时间"], [title*="插入时间点"], [title*="时间标记"], .toolbar-flag, .bili-note-panel button:has(.icon-flag)'
-    );
-
+    const { flagBtn } = this.findToolbarButtons();
     if (flagBtn) {
       flagBtn.click();
       return true;
@@ -111,12 +231,9 @@ export class BiliNoteDomController {
     }
 
     // 2. Engine 1: Try Bilibili's native screenshot button in the note panel toolbar
-    const nativeScreenshotBtn = document.querySelector<HTMLElement>(
-      '.bili-note-panel [title*="截图"], .bili-note [title*="截图"], .note-editor-toolbar [title*="截图"], [title*="截取视频画面"], [title*="视频截图"], .toolbar-screenshot, .bili-note-panel button:has(.icon-screenshot)'
-    );
-
-    if (nativeScreenshotBtn) {
-      nativeScreenshotBtn.click();
+    const { cameraBtn } = this.findToolbarButtons();
+    if (cameraBtn) {
+      cameraBtn.click();
       return { success: true, method: 'native-button' };
     }
 
@@ -162,10 +279,10 @@ export class BiliNoteDomController {
 
   /**
    * One-click Quick Capture:
-   * 1. Ensures native note panel is open.
+   * 1. Ensures native note panel is open (auto-opens if closed).
    * 2. Moves cursor to editor end.
-   * 3. Triggers native timestamp (flag button) to insert native clickable `🚩 MM:SS` tag.
-   * 4. Triggers native screenshot (camera button).
+   * 3. Inserts an intact clickable timestamp tag.
+   * 4. Triggers native screenshot (camera button) directly below it.
    * 5. Adds a clean trailing spacer.
    */
   static async quickCaptureCurrentFrame(): Promise<{
@@ -189,7 +306,14 @@ export class BiliNoteDomController {
 
     editor.focus();
 
-    // 2. Position cursor to the end of editor
+    // 2. Format current time string
+    const video = document.querySelector<HTMLVideoElement>('video');
+    const sec = Math.floor(video?.currentTime || 0);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    const timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+
+    // 3. Move cursor to the very end of editor
     try {
       const sel = window.getSelection();
       if (sel) {
@@ -203,25 +327,20 @@ export class BiliNoteDomController {
       console.warn('[BiliFlow] Failed to collapse selection to editor end:', e);
     }
 
-    // 3. Format current time string for toast
-    const video = document.querySelector<HTMLVideoElement>('video');
-    const sec = Math.floor(video?.currentTime || 0);
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    const timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-
-    // 4. Trigger native timestamp (flag icon)
+    // 4. Try native flag button first; if not present, insert structured clickable tag
     const hasFlag = this.triggerNativeTimestamp();
+    let anchorEl: HTMLElement | null = null;
     if (!hasFlag) {
-      // Fallback: insert timestamp text
-      this.insertHtmlAtCursor(`<p><strong>🚩 [${timeStr}]</strong></p>`);
+      anchorEl = this.insertHtmlAtCursor(
+        `<p><strong class="biliflow-timestamp" data-seconds="${sec}" style="cursor:pointer; color:#00aeec;">🚩 [${timeStr}]</strong></p>`
+      );
     }
 
-    // Wait for Quill to insert timestamp blot
+    // Wait 120ms for Quill blot to settle
     await new Promise((r) => setTimeout(r, 120));
 
-    // 5. Trigger screenshot (camera icon)
-    const res = await this.triggerNativeScreenshotAt();
+    // 5. Trigger screenshot right at anchor position
+    const res = await this.triggerNativeScreenshotAt(anchorEl);
 
     // 6. Append clean spacer
     this.insertHtmlAtCursor('<p><br></p>');
@@ -232,4 +351,54 @@ export class BiliNoteDomController {
       message: res.method === 'native-button' ? '官方截图已捕获' : '画面已截图并粘贴',
     };
   }
+}
+
+/**
+ * Global click listener for Bilibili native note editor:
+ * Intercepts clicks on any timestamp badge or text inside .ql-editor and seeks the video!
+ */
+export function setupNativeNoteTimestampClickListener(): () => void {
+  const handleClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (!target) return;
+
+    // Must be inside the note panel or editor
+    const inNote = target.closest('.ql-editor, .bili-note-panel, .bili-note, .note-panel');
+    if (!inNote) return;
+
+    // 1. Check data-seconds attribute (e.g. data-seconds="159")
+    const tagWithSec = target.closest<HTMLElement>('[data-seconds], [data-time], .tag-item, .ql-tag');
+    if (tagWithSec) {
+      const rawSec = tagWithSec.getAttribute('data-seconds') || tagWithSec.getAttribute('data-time');
+      const sec = Number(rawSec);
+      if (!isNaN(sec) && sec >= 0) {
+        const video = document.querySelector<HTMLVideoElement>('video');
+        if (video) {
+          video.currentTime = sec;
+          return;
+        }
+      }
+    }
+
+    // 2. Check text content for mm:ss or hh:mm:ss timestamp (e.g. [02:39] or 🚩 [02:39])
+    const text = target.textContent || '';
+    const match = text.match(/(?:\[|\b)(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\]|\b)/);
+    if (match) {
+      let seconds = 0;
+      if (match[3]) {
+        seconds = parseInt(match[1], 10) * 3600 + parseInt(match[2], 10) * 60 + parseInt(match[3], 10);
+      } else {
+        seconds = parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
+      }
+      const video = document.querySelector<HTMLVideoElement>('video');
+      if (video && seconds >= 0) {
+        video.currentTime = seconds;
+      }
+    }
+  };
+
+  document.addEventListener('click', handleClick, true);
+  return () => {
+    document.removeEventListener('click', handleClick, true);
+  };
 }
