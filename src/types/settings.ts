@@ -30,7 +30,7 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   enableNumberKeySeek: true,
   autoFullscreenHud: true,
   showToasts: true,
-  defaultHudOpen: false,
+  defaultHudOpen: true,
 };
 
 // ==========================================

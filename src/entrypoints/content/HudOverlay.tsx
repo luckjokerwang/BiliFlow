@@ -10,6 +10,10 @@ import {
   renderTimelineMarkers,
   cleanupPlayerInjections,
 } from '../../utils/playerInjector';
+import {
+  formatSummaryAsMarkdown,
+  copyTextToClipboard,
+} from '../../utils/exportUtils';
 
 import { useSettings } from './hooks/useSettings';
 import { useAutoSummary } from './hooks/useAutoSummary';
@@ -200,6 +204,18 @@ export const HudOverlay: React.FC = () => {
     return () => clearInterval(interval);
   }, [summary, duration, settings.showTimelineMarkers, settings.showHoverCard, seekTo, showToast]);
 
+  // Copy Markdown to Clipboard
+  const handleCopyMarkdown = useCallback(async () => {
+    if (!summary) return;
+    const md = formatSummaryAsMarkdown(summary);
+    const ok = await copyTextToClipboard(md);
+    if (ok) {
+      showToast('已复制 Markdown 笔记到剪贴板 (兼容 B 站评论区)');
+    } else {
+      showToast('复制失败，请检查浏览器剪贴板权限');
+    }
+  }, [summary, showToast]);
+
   // Open Options page safely
   const handleOpenOptions = () => {
     browser.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
@@ -229,9 +245,12 @@ export const HudOverlay: React.FC = () => {
             loading={loading}
             isFallbackUsed={summary?.isFallbackUsed}
             usedModel={summary?.usedModel}
+            hasSummary={Boolean(summary?.highlights?.length)}
+            shortcut={settings.shortcutToggle || 'Alt+S'}
             onRefresh={() => retrySummary()}
             onOpenOptions={handleOpenOptions}
             onClose={() => setIsOpen(false)}
+            onCopyMarkdown={handleCopyMarkdown}
           />
 
           {/* Content Body */}

@@ -216,5 +216,9 @@ export function cleanupPlayerInjections(): void {
   }
   cardHostEl = null;
 
-  document.querySelectorAll('#biliflow-timeline-markers-host, #biliflow-timeline-card-host').forEach((el) => el.remove());
+  document
+    .querySelectorAll(
+      '#biliflow-timeline-markers-host, #biliflow-timeline-card-host, #biliflow-control-capsule-host'
+    )
+    .forEach((el) => el.remove());
 }

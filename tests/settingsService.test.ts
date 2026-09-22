@@ -79,7 +79,7 @@ describe('settingsService - mergeSettingsWithDefaults', () => {
     expect(result.showTimelineMarkers).toBe(true);
     expect(result.enableNumberKeySeek).toBe(true);
     expect(result.showToasts).toBe(true);
-    expect(result.defaultHudOpen).toBe(false);
+    expect(result.defaultHudOpen).toBe(true);
     // Custom provider and API key must be preserved
     expect(result.providers[0].apiKey).toBe('sk-my-secret-key');
   });
