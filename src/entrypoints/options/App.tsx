@@ -84,7 +84,9 @@ export const App: React.FC = () => {
   const [testResults, setTestResults] = useState<TestResultMap>({});
 
   const [savedToast, setSavedToast] = useState<string | null>(null);
-  const [recordingTarget, setRecordingTarget] = useState<'toggle' | 'prev' | 'next' | 'quotes' | null>(null);
+  const [recordingTarget, setRecordingTarget] = useState<
+    'toggle' | 'prev' | 'next' | 'quotes' | 'quickNote' | null
+  >(null);
   const [importJsonText, setImportJsonText] = useState<string>('');
 
   // Model Picker Modal State
@@ -417,6 +419,8 @@ export const App: React.FC = () => {
 
       if (recordingTarget === 'toggle') {
         saveSettings({ ...settings, shortcutToggle: combo }, `HUD 呼出快捷键已更新为: ${combo}`);
+      } else if (recordingTarget === 'quickNote') {
+        saveSettings({ ...settings, shortcutQuickNote: combo }, `一键笔记截图快捷键已更新为: ${combo}`);
       } else if (recordingTarget === 'prev') {
         saveSettings({ ...settings, shortcutPrevNode: combo }, `上一个节点快捷键已更新为: ${combo}`);
       } else if (recordingTarget === 'next') {

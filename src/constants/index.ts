@@ -133,5 +133,6 @@ export const DEFAULT_SETTINGS: UserSettings = {
   shortcutPrevNode: 'K',
   shortcutNextNode: 'J',
   shortcutToggleQuotes: 'O',
+  shortcutQuickNote: 'Alt+N',
   theme: 'dark',
 };

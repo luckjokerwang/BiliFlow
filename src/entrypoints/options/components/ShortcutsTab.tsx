@@ -5,8 +5,8 @@ import { UserSettings } from '../../../types';
 export interface ShortcutsTabProps {
   isDark: boolean;
   settings: UserSettings;
-  recordingTarget: 'toggle' | 'prev' | 'next' | 'quotes' | null;
-  setRecordingTarget: (target: 'toggle' | 'prev' | 'next' | 'quotes' | null) => void;
+  recordingTarget: 'toggle' | 'prev' | 'next' | 'quotes' | 'quickNote' | null;
+  setRecordingTarget: (target: 'toggle' | 'prev' | 'next' | 'quotes' | 'quickNote' | null) => void;
   onSaveSettings: (newSettings: UserSettings, toastText?: string) => void;
 }
 
@@ -25,6 +25,14 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
       value: settings.shortcutToggle || 'Alt+S',
       defaultVal: 'Alt+S',
       saveKey: 'shortcutToggle' as const,
+    },
+    {
+      target: 'quickNote' as const,
+      title: '一键截图并插入时间戳至 B站笔记',
+      desc: '在播放视频时按下快捷键，自动唤起 B站笔记，插入原生时间戳并抓取画面截图。',
+      value: settings.shortcutQuickNote || 'Alt+N',
+      defaultVal: 'Alt+N',
+      saveKey: 'shortcutQuickNote' as const,
     },
     {
       target: 'next' as const,
@@ -70,7 +78,7 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
             <span>自定义全键盘交互快捷键</span>
           </h2>
           <p className="text-xs text-slate-400 mt-1">
-            自由改绑 HUD 浮层交互、节点步进及字幕依据展开快捷键。点击“录制”后直接按下按键即可（支持单键或组合键，按 Esc 可取消）。
+            自由改绑 HUD 浮层交互、节点步进、字幕依据展开及一键 B站笔记快捷键。点击“录制”后直接按下按键即可（支持单键或组合键，按 Esc 可取消）。
           </p>
         </div>
 
@@ -169,6 +177,19 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
                 : 'bg-slate-50 border-slate-200'
             }`}
           >
+            <span className="text-slate-400 font-medium">一键截图与时间戳记入 B站笔记</span>
+            <kbd className="px-2 py-1 rounded font-mono text-cyan-400 font-bold bg-cyan-500/10 border border-cyan-500/20">
+              {settings.shortcutQuickNote || 'Alt+N'}
+            </kbd>
+          </div>
+
+          <div
+            className={`p-3.5 rounded-xl border flex items-center justify-between ${
+              isDark
+                ? 'bg-slate-900/60 border-slate-800'
+                : 'bg-slate-50 border-slate-200'
+            }`}
+          >
             <span className="text-slate-400 font-medium">直达核心亮点 (1~9)</span>
             <kbd className="px-2 py-1 rounded font-mono text-sky-500 font-bold bg-sky-500/10 border border-sky-500/20">
               1 ~ 9
@@ -202,7 +223,7 @@ export const ShortcutsTab: React.FC<ShortcutsTabProps> = ({
           </div>
 
           <div
-            className={`p-3.5 rounded-xl border flex items-center justify-between md:col-span-2 ${
+            className={`p-3.5 rounded-xl border flex items-center justify-between ${
               isDark
                 ? 'bg-slate-900/60 border-slate-800'
                 : 'bg-slate-50 border-slate-200'

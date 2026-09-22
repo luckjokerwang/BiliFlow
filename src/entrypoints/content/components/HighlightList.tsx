@@ -19,7 +19,10 @@ export interface HighlightListProps {
     data: { type: UserAnnotationType; content: string }
   ) => void;
   onDeleteAnnotation?: (annotationId: string) => void;
-  onInsertToNativeNote?: (highlight: HighlightItem, withScreenshot: boolean) => void;
+  onInsertToNativeNote?: (
+    highlight: HighlightItem,
+    withScreenshot: boolean
+  ) => Promise<boolean | void> | void;
   itemRefs: React.MutableRefObject<(HTMLDivElement | null)[]>;
 }
 

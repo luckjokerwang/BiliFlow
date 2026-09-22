@@ -65,6 +65,21 @@ export class BiliNoteDomController {
   }
 
   /**
+   * Triggers Bilibili's native timestamp flag button in the note toolbar.
+   */
+  static triggerNativeTimestamp(): boolean {
+    const flagBtn = document.querySelector<HTMLElement>(
+      '.bili-note-panel [title*="时间"], .bili-note [title*="时间"], .note-editor-toolbar [title*="时间"], [title*="插入时间点"], [title*="时间标记"], .toolbar-flag, .bili-note-panel button:has(.icon-flag)'
+    );
+
+    if (flagBtn) {
+      flagBtn.click();
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Positions the cursor at the end of targetElement, and triggers a video screenshot.
    * Engine 1: Simulates click on Bilibili's native screenshot button in the note toolbar.
    * Engine 2: Fallback to HTML5 canvas capture + clipboard paste event into .ql-editor.
@@ -97,7 +112,7 @@ export class BiliNoteDomController {
 
     // 2. Engine 1: Try Bilibili's native screenshot button in the note panel toolbar
     const nativeScreenshotBtn = document.querySelector<HTMLElement>(
-      '.bili-note-panel [title*="截图"], .bili-note [title*="截图"], .note-editor-toolbar [title*="截图"], [title*="截取视频画面"], [title*="视频截图"], .toolbar-screenshot'
+      '.bili-note-panel [title*="截图"], .bili-note [title*="截图"], .note-editor-toolbar [title*="截图"], [title*="截取视频画面"], [title*="视频截图"], .toolbar-screenshot, .bili-note-panel button:has(.icon-screenshot)'
     );
 
     if (nativeScreenshotBtn) {
@@ -143,5 +158,78 @@ export class BiliNoteDomController {
     }
 
     return { success: false, method: 'failed' };
+  }
+
+  /**
+   * One-click Quick Capture:
+   * 1. Ensures native note panel is open.
+   * 2. Moves cursor to editor end.
+   * 3. Triggers native timestamp (flag button) to insert native clickable `🚩 MM:SS` tag.
+   * 4. Triggers native screenshot (camera button).
+   * 5. Adds a clean trailing spacer.
+   */
+  static async quickCaptureCurrentFrame(): Promise<{
+    success: boolean;
+    message?: string;
+    timestampStr?: string;
+  }> {
+    // 1. Ensure note panel is open
+    const opened = await this.ensureNativeNoteOpen();
+    if (!opened) {
+      return {
+        success: false,
+        message: '未能唤起 B站笔记，请确认已登录或手动点击播放器下方的「记笔记」',
+      };
+    }
+
+    const editor = document.querySelector<HTMLElement>('.ql-editor');
+    if (!editor) {
+      return { success: false, message: '未找到 B站笔记编辑器容器' };
+    }
+
+    editor.focus();
+
+    // 2. Position cursor to the end of editor
+    try {
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    } catch (e) {
+      console.warn('[BiliFlow] Failed to collapse selection to editor end:', e);
+    }
+
+    // 3. Format current time string for toast
+    const video = document.querySelector<HTMLVideoElement>('video');
+    const sec = Math.floor(video?.currentTime || 0);
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    const timeStr = `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+
+    // 4. Trigger native timestamp (flag icon)
+    const hasFlag = this.triggerNativeTimestamp();
+    if (!hasFlag) {
+      // Fallback: insert timestamp text
+      this.insertHtmlAtCursor(`<p><strong>🚩 [${timeStr}]</strong></p>`);
+    }
+
+    // Wait for Quill to insert timestamp blot
+    await new Promise((r) => setTimeout(r, 120));
+
+    // 5. Trigger screenshot (camera icon)
+    const res = await this.triggerNativeScreenshotAt();
+
+    // 6. Append clean spacer
+    this.insertHtmlAtCursor('<p><br></p>');
+
+    return {
+      success: true,
+      timestampStr: timeStr,
+      message: res.method === 'native-button' ? '官方截图已捕获' : '画面已截图并粘贴',
+    };
   }
 }

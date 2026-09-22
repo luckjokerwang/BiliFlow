@@ -47,5 +47,6 @@ export interface UserSettings extends FeatureFlags {
   shortcutPrevNode?: string;
   shortcutNextNode?: string;
   shortcutToggleQuotes?: string;
+  shortcutQuickNote?: string;
   theme?: ThemeMode;
 }

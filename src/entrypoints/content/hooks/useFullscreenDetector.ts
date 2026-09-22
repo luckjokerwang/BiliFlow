@@ -11,6 +11,7 @@ export interface UseFullscreenDetectorProps {
   onNextHighlight?: () => void;
   onToggleQuotes?: () => void;
   onNumberKeySeek?: (digit: number) => void;
+  onQuickNote?: () => void;
 }
 
 export interface UseFullscreenDetectorReturn {
@@ -55,6 +56,7 @@ export function useFullscreenDetector({
   onNextHighlight,
   onToggleQuotes,
   onNumberKeySeek,
+  onQuickNote,
 }: UseFullscreenDetectorProps): UseFullscreenDetectorReturn {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
@@ -101,7 +103,15 @@ export function useFullscreenDetector({
         return;
       }
 
-      // 2. Close HUD on Escape
+      // 2. Quick Note & Screenshot Shortcut (default: Alt+N)
+      if (matchesShortcut(e, settings.shortcutQuickNote || 'Alt+N')) {
+        e.preventDefault();
+        e.stopPropagation();
+        onQuickNote?.();
+        return;
+      }
+
+      // 3. Close HUD on Escape
       if (e.key === 'Escape' && isOpen) {
         e.preventDefault();
         e.stopPropagation();
@@ -109,7 +119,7 @@ export function useFullscreenDetector({
         return;
       }
 
-      // 3. Highlight navigation (J / K)
+      // 4. Highlight navigation (J / K)
       if (matchesShortcut(e, settings.shortcutPrevNode)) {
         e.preventDefault();
         e.stopPropagation();
@@ -124,7 +134,7 @@ export function useFullscreenDetector({
         return;
       }
 
-      // 4. Toggle quotes expansion (O)
+      // 5. Toggle quotes expansion (O)
       if (matchesShortcut(e, settings.shortcutToggleQuotes)) {
         e.preventDefault();
         e.stopPropagation();
@@ -132,7 +142,7 @@ export function useFullscreenDetector({
         return;
       }
 
-      // 5. 1~9 Number Key Seek (Feature Flag: enableNumberKeySeek)
+      // 6. 1~9 Number Key Seek (Feature Flag: enableNumberKeySeek)
       if (
         settings.enableNumberKeySeek &&
         !e.ctrlKey &&
@@ -163,6 +173,7 @@ export function useFullscreenDetector({
     onNextHighlight,
     onToggleQuotes,
     onNumberKeySeek,
+    onQuickNote,
   ]);
 
   return { isFullscreen };

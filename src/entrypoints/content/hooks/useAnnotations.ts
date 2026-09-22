@@ -98,14 +98,14 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
       highlight: HighlightItem,
       annotation?: UserAnnotation,
       withScreenshot: boolean = false
-    ) => {
+    ): Promise<boolean> => {
       setIsSyncing(true);
       try {
         // 1. Ensure Bilibili native note panel is open
         const opened = await BiliNoteDomController.ensureNativeNoteOpen();
         if (!opened) {
-          onToast?.('未检测到 B站原生记笔记面板，请先登录或手动点击播放器下方的「记笔记」');
-          return { success: false, message: 'Native note panel not opened' };
+          onToast?.('✕ 未能唤起 B站记笔记面板，请确认已登录或手动展开右侧笔记');
+          return false;
         }
 
         // 2. Format HTML and inject at cursor
@@ -116,25 +116,44 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
         if (withScreenshot) {
           const res = await BiliNoteDomController.triggerNativeScreenshotAt(anchorEl);
           if (res.success) {
-            onToast?.(`已将 [${highlight.timestampStr}] 观点与截图记入 B站笔记`);
+            onToast?.(`✓ 已将 [${highlight.timestampStr}] 观点与截图记入 B站笔记`);
           } else {
-            onToast?.(`已将 [${highlight.timestampStr}] 观点记入笔记 (未能自动截屏)`);
+            onToast?.(`✓ 已将 [${highlight.timestampStr}] 观点记入笔记 (未能自动截屏)`);
           }
         } else {
-          onToast?.(`已将 [${highlight.timestampStr}] 观点记入 B站笔记`);
+          onToast?.(`✓ 已将 [${highlight.timestampStr}] 观点记入 B站笔记`);
         }
 
-        return { success: true, message: 'Inserted' };
+        return true;
       } catch (err: any) {
         console.error('[BiliFlow] Insert to native note failed:', err);
-        onToast?.('记入 B站笔记失败，请重试');
-        return { success: false, message: err?.message || String(err) };
+        onToast?.(`✕ 记入失败: ${err?.message || '未知错误'}`);
+        return false;
       } finally {
         setIsSyncing(false);
       }
     },
     [onToast]
   );
+
+  // One-click quick capture: screenshot + native timestamp blot via shortcut
+  const quickCapture = useCallback(async () => {
+    onToast?.('⏳ 正在记录时间戳与截图...');
+    try {
+      const res = await BiliNoteDomController.quickCaptureCurrentFrame();
+      if (res.success) {
+        onToast?.(`✓ 已将 [${res.timestampStr || '当前画面'}] 截图与时间戳记入 B站笔记`);
+        return true;
+      } else {
+        onToast?.(`✕ 记入失败: ${res.message || '未能唤起或写入 B站笔记'}`);
+        return false;
+      }
+    } catch (err: any) {
+      console.error('[BiliFlow] Quick capture failed:', err);
+      onToast?.(`✕ 记入失败: ${err?.message || '未知错误'}`);
+      return false;
+    }
+  }, [onToast]);
 
   // Export full study note (AI summary + all user annotations) into Bilibili native note
   const exportFullToNativeNote = useCallback(
@@ -144,17 +163,9 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
       try {
         const opened = await BiliNoteDomController.ensureNativeNoteOpen();
         if (!opened) {
-          onToast?.('未检测到 B站原生记笔记面板，请先登录或手动点击播放器下方的「记笔记」');
+          onToast?.('✕ 未能唤起 B站记笔记面板，请确认已登录或手动点击播放器下方的「记笔记」');
           return;
         }
-
-        const studyNote: VideoStudyNote = {
-          bvid: summary.bvid,
-          cid: summary.cid,
-          title: summary.title,
-          summary,
-          annotations,
-        };
 
         // Format HTML for all highlights and notes
         const fullHtml = summary.highlights
@@ -171,15 +182,15 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
         }<hr>`;
 
         BiliNoteDomController.insertHtmlAtCursor(headerHtml + fullHtml);
-        onToast?.('已将整篇 AI 精读与感悟完整导入 B站官方笔记');
+        onToast?.('✓ 已将整篇 AI 精读与感悟完整导入 B站官方笔记');
       } catch (err: any) {
         console.error('[BiliFlow] Export full to native note failed:', err);
-        onToast?.('导入失败，请重试');
+        onToast?.(`✕ 导入失败: ${err?.message || '请重试'}`);
       } finally {
         setIsSyncing(false);
       }
     },
-    [annotations, getForHighlight, onToast]
+    [getForHighlight, onToast]
   );
 
   return {
@@ -190,5 +201,6 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
     getForHighlight,
     insertCardToNativeNote,
     exportFullToNativeNote,
+    quickCapture,
   };
 }

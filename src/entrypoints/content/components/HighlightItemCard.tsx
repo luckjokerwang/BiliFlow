@@ -9,6 +9,7 @@ import {
   Pin,
   Check,
   Trash2,
+  Loader2,
   X,
 } from 'lucide-react';
 import { HighlightItem } from '../../../types';
@@ -30,7 +31,7 @@ export interface HighlightItemCardProps {
   onSeekQuote: (seconds: number) => void;
   onSaveAnnotation?: (data: { type: UserAnnotationType; content: string }) => void;
   onDeleteAnnotation?: () => void;
-  onInsertToNativeNote?: (withScreenshot: boolean) => void;
+  onInsertToNativeNote?: (withScreenshot: boolean) => Promise<boolean | void>;
   cardRef?: (el: HTMLDivElement | null) => void;
 }
 
@@ -66,6 +67,10 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
     annotation?.content || ''
   );
 
+  // Micro-feedback state for native note sync
+  const [syncState, setSyncState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [syncTarget, setSyncTarget] = useState<'text' | 'screenshot' | null>(null);
+
   // Sync state if annotation updates externally
   useEffect(() => {
     if (annotation) {
@@ -93,6 +98,46 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
     onDeleteAnnotation?.();
     setThoughtContent('');
     setIsEditingThought(false);
+  };
+
+  // Trigger sync with debounce & immediate button feedback
+  const handleSyncToNote = async (withScreenshot: boolean, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (syncState !== 'idle') return; // Prevent double click duplicate!
+
+    // If user has typed something, save thought first
+    if (thoughtContent.trim() && (!annotation || annotation.content !== thoughtContent.trim())) {
+      onSaveAnnotation?.({
+        type: thoughtType,
+        content: thoughtContent.trim(),
+      });
+    }
+
+    setSyncTarget(withScreenshot ? 'screenshot' : 'text');
+    setSyncState('loading');
+
+    try {
+      const res = await onInsertToNativeNote?.(withScreenshot);
+      if (res !== false) {
+        setSyncState('success');
+        setTimeout(() => {
+          setSyncState('idle');
+          setSyncTarget(null);
+        }, 1500);
+      } else {
+        setSyncState('error');
+        setTimeout(() => {
+          setSyncState('idle');
+          setSyncTarget(null);
+        }, 1500);
+      }
+    } catch (_) {
+      setSyncState('error');
+      setTimeout(() => {
+        setSyncState('idle');
+        setSyncTarget(null);
+      }, 1500);
+    }
   };
 
   return (
@@ -238,7 +283,7 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
           </div>
         )}
 
-        {/* Inline Thought Form */}
+        {/* Inline Thought Form (Progressive Disclosure) */}
         {isEditingThought && (
           <div
             onClick={(e) => e.stopPropagation()}
@@ -281,8 +326,8 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
               }`}
             />
 
-            {/* Form actions */}
-            <div className="flex items-center justify-between pt-0.5">
+            {/* Form actions with Bilibili Note Sync & Micro-Feedback */}
+            <div className="flex items-center justify-between pt-1 border-t border-slate-700/20 flex-wrap gap-1">
               <div className="flex items-center gap-1">
                 {annotation && (
                   <button
@@ -295,70 +340,113 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
                     <span>删除</span>
                   </button>
                 )}
-              </div>
-
-              <div className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={() => setIsEditingThought(false)}
-                  className={`text-[10px] px-2 py-0.5 rounded cursor-pointer ${
+                  className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
                     isDark
                       ? 'text-slate-400 hover:text-slate-200'
                       : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
-                  取消
+                  收起
                 </button>
+              </div>
+
+              <div className="flex items-center gap-1 flex-wrap">
+                {/* 1. Save locally */}
                 <button
                   type="button"
                   onClick={handleSaveThought}
                   disabled={!thoughtContent.trim()}
-                  className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded bg-sky-500 text-white font-medium hover:bg-sky-400 disabled:opacity-50 cursor-pointer"
+                  className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded bg-slate-700 text-white hover:bg-slate-600 disabled:opacity-50 cursor-pointer"
+                  title="仅保存到本地"
                 >
                   <Check className="w-2.5 h-2.5" />
-                  <span>保存感悟</span>
+                  <span>保存</span>
+                </button>
+
+                {/* 2. Pin to B站 Note */}
+                <button
+                  type="button"
+                  onClick={(e) => handleSyncToNote(false, e)}
+                  disabled={syncState !== 'idle'}
+                  className={`inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-80 ${
+                    syncState === 'success' && syncTarget === 'text'
+                      ? 'bg-emerald-600 text-white'
+                      : syncState === 'error' && syncTarget === 'text'
+                      ? 'bg-rose-600 text-white'
+                      : isDark
+                      ? 'text-sky-300 bg-sky-950/60 border border-sky-800/40 hover:bg-sky-900/60'
+                      : 'text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100'
+                  }`}
+                  title="将本段观点与感悟记入 B站官方笔记"
+                >
+                  {syncState === 'loading' && syncTarget === 'text' ? (
+                    <>
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      <span>记入中...</span>
+                    </>
+                  ) : syncState === 'success' && syncTarget === 'text' ? (
+                    <>
+                      <Check className="w-2.5 h-2.5" />
+                      <span>已记入</span>
+                    </>
+                  ) : syncState === 'error' && syncTarget === 'text' ? (
+                    <>
+                      <X className="w-2.5 h-2.5" />
+                      <span>失败</span>
+                    </>
+                  ) : (
+                    <>
+                      <Pin className="w-2.5 h-2.5" />
+                      <span>记入B站笔记</span>
+                    </>
+                  )}
+                </button>
+
+                {/* 3. Pin with Screenshot */}
+                <button
+                  type="button"
+                  onClick={(e) => handleSyncToNote(true, e)}
+                  disabled={syncState !== 'idle'}
+                  className={`inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-80 ${
+                    syncState === 'success' && syncTarget === 'screenshot'
+                      ? 'bg-emerald-600 text-white'
+                      : syncState === 'error' && syncTarget === 'screenshot'
+                      ? 'bg-rose-600 text-white'
+                      : isDark
+                      ? 'text-cyan-300 bg-cyan-950/60 border border-cyan-800/40 hover:bg-cyan-900/60'
+                      : 'text-cyan-700 bg-cyan-50 border border-cyan-200 hover:bg-cyan-100'
+                  }`}
+                  title="将本段观点及当前画面截图精准记入 B站官方笔记"
+                >
+                  {syncState === 'loading' && syncTarget === 'screenshot' ? (
+                    <>
+                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                      <span>截图中...</span>
+                    </>
+                  ) : syncState === 'success' && syncTarget === 'screenshot' ? (
+                    <>
+                      <Check className="w-2.5 h-2.5" />
+                      <span>已记入</span>
+                    </>
+                  ) : syncState === 'error' && syncTarget === 'screenshot' ? (
+                    <>
+                      <X className="w-2.5 h-2.5" />
+                      <span>失败</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="w-2.5 h-2.5" />
+                      <span>📷 带截图记入</span>
+                    </>
+                  )}
                 </button>
               </div>
             </div>
           </div>
         )}
-
-        {/* Action bar: Send to Native Note & Capture Screenshot */}
-        <div className="flex items-center justify-end gap-1.5 mt-2 pt-1 border-t border-slate-700/20">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onInsertToNativeNote?.(false);
-            }}
-            className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer ${
-              isDark
-                ? 'text-sky-300 bg-sky-950/40 border border-sky-800/40 hover:bg-sky-900/50'
-                : 'text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100'
-            }`}
-            title="将本章节观点（及您的感悟）记入 B站官方笔记"
-          >
-            <Pin className="w-2.5 h-2.5" />
-            <span>记入B站笔记</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onInsertToNativeNote?.(true);
-            }}
-            className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer ${
-              isDark
-                ? 'text-cyan-300 bg-cyan-950/40 border border-cyan-800/40 hover:bg-cyan-900/50'
-                : 'text-cyan-700 bg-cyan-50 border border-cyan-200 hover:bg-cyan-100'
-            }`}
-            title="将本章节观点及当前画面截图精准记入 B站官方笔记"
-          >
-            <Camera className="w-2.5 h-2.5" />
-            <span>📷 附带截图记入</span>
-          </button>
-        </div>
 
         {/* Expandable Original Quotes */}
         {isExpanded && hasQuotes && (

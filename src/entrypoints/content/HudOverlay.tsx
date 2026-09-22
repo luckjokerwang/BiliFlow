@@ -72,6 +72,7 @@ export const HudOverlay: React.FC = () => {
     getForHighlight,
     insertCardToNativeNote,
     exportFullToNativeNote,
+    quickCapture,
   } = useAnnotations({
     bvid: summary?.bvid,
     cid: summary?.cid,
@@ -160,6 +161,7 @@ export const HudOverlay: React.FC = () => {
       setIsOpen((prev) => !prev);
     },
     onClose: () => setIsOpen(false),
+    onQuickNote: quickCapture,
     onPrevHighlight: () => {
       if (!summary?.highlights || summary.highlights.length === 0) return;
       const next = Math.max(selectedIndex - 1, 0);
