@@ -117,6 +117,57 @@ export const App: React.FC = () => {
   const [pickerSelectedModels, setPickerSelectedModels] = useState<string[]>([]);
   const [pickerFetchError, setPickerFetchError] = useState<string | null>(null);
 
+  // Cache stats state
+  const [cacheStats, setCacheStats] = useState<{
+    count: number;
+    totalEstimatedBytes: number;
+    maxLimit: number;
+  } | null>(null);
+  const [clearingCache, setClearingCache] = useState<boolean>(false);
+
+  const loadCacheStats = async () => {
+    try {
+      const res: ExtensionResponse<{
+        count: number;
+        totalEstimatedBytes: number;
+        maxLimit: number;
+      }> = await browser.runtime.sendMessage({
+        type: 'GET_CACHE_STATS',
+      });
+      if (res && res.success && res.data) {
+        setCacheStats(res.data);
+      }
+    } catch (e) {
+      console.error('Failed to load cache stats:', e);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'backup') {
+      loadCacheStats();
+    }
+  }, [activeTab]);
+
+  const handleClearCache = async () => {
+    if (!confirm('确定要清理所有已缓存的视频总结吗？清理后再次访问这些视频将重新发起 AI 提炼。')) {
+      return;
+    }
+    setClearingCache(true);
+    try {
+      const res: ExtensionResponse = await browser.runtime.sendMessage({
+        type: 'CLEAR_CACHE',
+      });
+      if (res && res.success) {
+        setCacheStats((prev) => (prev ? { ...prev, count: 0, totalEstimatedBytes: 0 } : null));
+        triggerToast('已成功清理全部视频总结缓存');
+      }
+    } catch (e) {
+      console.error('Failed to clear cache:', e);
+    } finally {
+      setClearingCache(false);
+    }
+  };
+
   // Load & Migrate Settings on Mount
   useEffect(() => {
     (async () => {
@@ -479,7 +530,7 @@ export const App: React.FC = () => {
                 >
                   BiliFlow
                   <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                    v2.0.1
+                    v2.0.2
                   </span>
                 </h1>
                 <p className="text-[11px] text-slate-400">极速心流 · 模型工作台</p>
@@ -1497,6 +1548,86 @@ export const App: React.FC = () => {
                 <Upload className="w-4 h-4" />
                 <span>执行导入</span>
               </button>
+            </div>
+
+            {/* Summary Cache Management Card */}
+            <div
+              className={`p-6 rounded-2xl border space-y-4 shadow-sm transition-colors ${
+                isDark
+                  ? 'bg-[#111a2e]/90 border-slate-800/80'
+                  : 'bg-white border-slate-200'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <h2
+                  className={`text-sm font-semibold flex items-center gap-2 ${
+                    isDark ? 'text-white' : 'text-slate-900'
+                  }`}
+                >
+                  <Activity className="w-4 h-4 text-sky-500" />
+                  <span>视频总结缓存管理 (LRU 智能淘汰)</span>
+                </h2>
+                <button
+                  onClick={loadCacheStats}
+                  className={`p-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                    isDark
+                      ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                      : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                  }`}
+                  title="刷新缓存统计"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              <p className="text-xs text-slate-400 leading-relaxed">
+                为节约浏览器本地存储空间并防止配额溢出，BiliFlow 采用智能 LRU (Least Recently Used) 算法自动维护最近 100 条总结，超量时自动淘汰最久未访问条目。
+              </p>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div
+                  className={`p-3.5 rounded-xl border ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="text-[11px] text-slate-400">已缓存视频数量</div>
+                  <div className="text-lg font-bold font-mono text-sky-500 mt-0.5">
+                    {cacheStats ? `${cacheStats.count} / ${cacheStats.maxLimit}` : '加载中...'}
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3.5 rounded-xl border ${
+                    isDark ? 'bg-slate-900/60 border-slate-800' : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="text-[11px] text-slate-400">估算存储占用</div>
+                  <div className="text-lg font-bold font-mono text-cyan-500 mt-0.5">
+                    {cacheStats
+                      ? cacheStats.totalEstimatedBytes < 1024
+                        ? `${cacheStats.totalEstimatedBytes} B`
+                        : cacheStats.totalEstimatedBytes < 1024 * 1024
+                        ? `${(cacheStats.totalEstimatedBytes / 1024).toFixed(1)} KB`
+                        : `${(cacheStats.totalEstimatedBytes / (1024 * 1024)).toFixed(2)} MB`
+                      : '加载中...'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-1 flex items-center gap-3">
+                <button
+                  onClick={handleClearCache}
+                  disabled={clearingCache || !cacheStats || cacheStats.count === 0}
+                  className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-xl border transition-all cursor-pointer ${
+                    isDark
+                      ? 'bg-rose-950/40 hover:bg-rose-900/60 text-rose-300 border-rose-800/60 disabled:opacity-40 disabled:cursor-not-allowed'
+                      : 'bg-rose-50 hover:bg-rose-100 text-rose-700 border-rose-200 disabled:opacity-40 disabled:cursor-not-allowed'
+                  }`}
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                  <span>{clearingCache ? '正在清理...' : '立即清理全部视频总结缓存'}</span>
+                </button>
+              </div>
             </div>
 
             <div className="p-6 rounded-2xl bg-rose-500/10 border border-rose-500/20 space-y-3">

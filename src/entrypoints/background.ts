@@ -13,6 +13,12 @@ import {
   saveStoredSettings,
   mergeSettingsWithDefaults,
 } from '../services/settingsService';
+import {
+  saveSummaryToCache,
+  getCachedSummary,
+  getCacheStats,
+  clearAllSummaryCache,
+} from '../services/summaryCacheService';
 
 export default defineBackground(() => {
   console.log('[BiliFlow] Background Service Worker initialized.');
@@ -137,18 +143,26 @@ export default defineBackground(() => {
             enableFallback: settings.enableFallback ?? true,
           });
 
-          // Cache summary in local storage
-          const cacheKey = `summary_${bvid}_${cid}`;
-          await browser.storage.local.set({ [cacheKey]: summary });
+          // Cache summary in local storage with LRU eviction
+          await saveSummaryToCache(summary);
 
           return { success: true, data: summary };
         }
 
         case 'GET_CACHED_SUMMARY': {
           const { bvid, cid } = message.payload;
-          const cacheKey = `summary_${bvid}_${cid}`;
-          const cached = await browser.storage.local.get(cacheKey);
-          return { success: true, data: cached[cacheKey] || null };
+          const cached = await getCachedSummary(bvid, cid);
+          return { success: true, data: cached };
+        }
+
+        case 'GET_CACHE_STATS': {
+          const stats = await getCacheStats();
+          return { success: true, data: stats };
+        }
+
+        case 'CLEAR_CACHE': {
+          await clearAllSummaryCache();
+          return { success: true, data: null };
         }
 
         case 'GET_SETTINGS': {

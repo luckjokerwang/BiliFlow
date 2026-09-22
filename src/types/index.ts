@@ -90,6 +90,25 @@ export interface ProviderConfig {
 
 export type ThemeMode = 'dark' | 'light';
 
+// ------------------------------------------
+// Summary Cache Contracts (LRU)
+// ------------------------------------------
+
+export interface CacheIndexEntry {
+  key: string;         // e.g. "summary_BV123_456"
+  bvid: string;
+  cid: string;
+  title: string;
+  updatedAt: number;   // Epoch timestamp for LRU
+  sizeEstimatedBytes: number;
+}
+
+export interface CacheStats {
+  count: number;
+  totalEstimatedBytes: number;
+  maxLimit: number;
+}
+
 export * from './settings';
 
 // ------------------------------------------
@@ -105,7 +124,9 @@ export type MessageType =
   | 'GET_CACHED_SUMMARY'
   | 'TEST_PROVIDER_CONNECTION'
   | 'FETCH_PROVIDER_MODELS'
-  | 'OPEN_OPTIONS_PAGE';
+  | 'OPEN_OPTIONS_PAGE'
+  | 'GET_CACHE_STATS'
+  | 'CLEAR_CACHE';
 
 export interface ExtensionMessage<T = any> {
   type: MessageType;
