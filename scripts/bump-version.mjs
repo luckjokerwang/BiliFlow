@@ -121,8 +121,8 @@ const targets = [
     }
   },
   {
-    name: 'src/entrypoints/options/App.tsx',
-    file: path.join(ROOT_DIR, 'src/entrypoints/options/App.tsx'),
+    name: 'src/entrypoints/options/components/OptionsHeader.tsx',
+    file: path.join(ROOT_DIR, 'src/entrypoints/options/components/OptionsHeader.tsx'),
     transform: (content) => {
       return content.replace(
         /(<span className="text-\[10px\] font-mono font-medium px-1\.5 py-0\.2 rounded-full [^>]*>\s*)v[\d.]+(\s*<\/span>)/,
