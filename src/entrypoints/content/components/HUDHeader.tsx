@@ -1,5 +1,5 @@
 import React from 'react';
-import { Zap, ShieldCheck, RefreshCw, Settings, X, Copy } from 'lucide-react';
+import { Zap, ShieldCheck, RefreshCw, Settings, X, Copy, BookOpen } from 'lucide-react';
 
 export interface HUDHeaderProps {
   isDark: boolean;
@@ -12,6 +12,7 @@ export interface HUDHeaderProps {
   onOpenOptions: () => void;
   onClose: () => void;
   onCopyMarkdown?: () => void;
+  onExportToBiliNote?: () => void;
 }
 
 export const HUDHeader: React.FC<HUDHeaderProps> = ({
@@ -25,6 +26,7 @@ export const HUDHeader: React.FC<HUDHeaderProps> = ({
   onOpenOptions,
   onClose,
   onCopyMarkdown,
+  onExportToBiliNote,
 }) => {
   return (
     <div
@@ -73,6 +75,21 @@ export const HUDHeader: React.FC<HUDHeaderProps> = ({
       </div>
 
       <div className="flex items-center gap-1">
+        {hasSummary && !loading && onExportToBiliNote && (
+          <button
+            type="button"
+            onClick={onExportToBiliNote}
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              isDark
+                ? 'text-sky-400 hover:text-sky-200 hover:bg-slate-800'
+                : 'text-sky-600 hover:text-sky-800 hover:bg-slate-100'
+            }`}
+            title="将整篇 AI 精读与感悟完整导入 B站官方笔记"
+            aria-label="导入整篇笔记至 B站官方笔记"
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+          </button>
+        )}
         {hasSummary && !loading && onCopyMarkdown && (
           <button
             type="button"

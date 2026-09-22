@@ -58,6 +58,7 @@ export interface VideoSummaryResult {
   followUpQuestions?: string[];
   createdAt: number;
   usedModel?: string;    // Actual model used (useful when fallback triggered)
+  usedProviderName?: string; // Actual provider name used (useful when cross-provider fallback triggered)
   isFallbackUsed?: boolean;
 }
 
@@ -82,6 +83,7 @@ export interface ProviderConfig {
   models: string[];      // Curated/active models selected by user
   remoteModels?: string[]; // Full list of models fetched from provider /v1/models
   selectedModel: string; // Active model for summary generation
+  fallbackProviderId?: string; // Fallback provider ID (for cross-provider disaster recovery)
   fallbackModel?: string; // Fallback disaster-recovery model
   isCustom?: boolean;    // Whether user-created custom provider
   docUrl?: string;       // Link to get API Key / documentation
@@ -110,6 +112,7 @@ export interface CacheStats {
 }
 
 export * from './settings';
+export * from './biliNote';
 
 // ------------------------------------------
 // Message Passing Contracts

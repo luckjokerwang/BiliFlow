@@ -14,11 +14,13 @@ import {
   formatSummaryAsMarkdown,
   copyTextToClipboard,
 } from '../../utils/exportUtils';
+import { formatStudyNoteToMarkdown } from '../../utils/biliNoteFormatter';
 
 import { useSettings } from './hooks/useSettings';
 import { useAutoSummary } from './hooks/useAutoSummary';
 import { useVideoController } from './hooks/useVideoController';
 import { useFullscreenDetector } from './hooks/useFullscreenDetector';
+import { useAnnotations } from './hooks/useAnnotations';
 
 import { HUDHeader } from './components/HUDHeader';
 import { HighlightList } from './components/HighlightList';
@@ -62,7 +64,21 @@ export const HudOverlay: React.FC = () => {
     onToast: showToast,
   });
 
-  // Hook 2: Video Player Controller & Current Time Tracking
+  // Hook 2: User Annotations & Bilibili Native Note Integration
+  const {
+    annotations,
+    saveAnnotation,
+    deleteAnnotation,
+    getForHighlight,
+    insertCardToNativeNote,
+    exportFullToNativeNote,
+  } = useAnnotations({
+    bvid: summary?.bvid,
+    cid: summary?.cid,
+    onToast: showToast,
+  });
+
+  // Hook 3: Video Player Controller & Current Time Tracking
   const {
     currentPlaybackSec,
     duration,
@@ -135,7 +151,7 @@ export const HudOverlay: React.FC = () => {
     });
   }, [markUserManualAction]);
 
-  // Hook 3: Fullscreen & Global Keyboard Shortcuts
+  // Hook 4: Fullscreen & Global Keyboard Shortcuts
   useFullscreenDetector({
     settings,
     isOpen,
@@ -213,17 +229,29 @@ export const HudOverlay: React.FC = () => {
     };
   }, [summary, duration, settings.showTimelineMarkers, settings.showHoverCard, seekTo, showToast]);
 
-  // Copy Markdown to Clipboard
+  // Copy Markdown to Clipboard (Dual-track with user annotations)
   const handleCopyMarkdown = useCallback(async () => {
     if (!summary) return;
-    const md = formatSummaryAsMarkdown(summary);
+    let md = '';
+    if (annotations.length > 0) {
+      md = formatStudyNoteToMarkdown({
+        bvid: summary.bvid,
+        cid: summary.cid,
+        title: summary.title,
+        summary,
+        annotations,
+      });
+    } else {
+      md = formatSummaryAsMarkdown(summary);
+    }
+
     const ok = await copyTextToClipboard(md);
     if (ok) {
-      showToast('已复制 Markdown 笔记到剪贴板 (兼容 B 站评论区)');
+      showToast('已复制 Markdown 笔记到剪贴板 (含个人思考与引用)');
     } else {
       showToast('复制失败，请检查浏览器剪贴板权限');
     }
-  }, [summary, showToast]);
+  }, [summary, annotations, showToast]);
 
   // Open Options page safely
   const handleOpenOptions = () => {
@@ -260,6 +288,7 @@ export const HudOverlay: React.FC = () => {
             onOpenOptions={handleOpenOptions}
             onClose={() => setIsOpen(false)}
             onCopyMarkdown={handleCopyMarkdown}
+            onExportToBiliNote={() => summary && exportFullToNativeNote(summary)}
           />
 
           {/* Content Body */}
@@ -347,7 +376,7 @@ export const HudOverlay: React.FC = () => {
                   </div>
                 )}
 
-                {/* Highlights List */}
+                {/* Highlights List with Dual-Track Annotations */}
                 <HighlightList
                   isDark={isDark}
                   highlights={summary.highlights}
@@ -361,6 +390,28 @@ export const HudOverlay: React.FC = () => {
                     markUserManualAction();
                     seekTo(sec);
                     showToast('已跳转至原文字幕');
+                  }}
+                  getAnnotationForHighlight={getForHighlight}
+                  onSaveAnnotation={(h, data) => {
+                    const sec =
+                      typeof h.timestamp === 'number'
+                        ? h.timestamp
+                        : (h.timestampSec ?? 0);
+                    saveAnnotation({
+                      timestamp: sec,
+                      timestampStr: h.timestampStr,
+                      highlightId: h.id,
+                      type: data.type,
+                      content: data.content,
+                    });
+                    showToast('已保存思考感悟');
+                  }}
+                  onDeleteAnnotation={(id) => {
+                    deleteAnnotation(id);
+                    showToast('已删除感悟');
+                  }}
+                  onInsertToNativeNote={(h, withScreenshot) => {
+                    insertCardToNativeNote(h, getForHighlight(h.id), withScreenshot);
                   }}
                   itemRefs={itemRefs}
                 />

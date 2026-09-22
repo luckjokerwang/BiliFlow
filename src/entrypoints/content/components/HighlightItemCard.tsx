@@ -1,6 +1,19 @@
-import React from 'react';
-import { Clock, Quote, ChevronUp, ChevronDown } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  Clock,
+  Quote,
+  ChevronUp,
+  ChevronDown,
+  MessageSquare,
+  Camera,
+  Pin,
+  Check,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { HighlightItem } from '../../../types';
+import { UserAnnotation, UserAnnotationType } from '../../../types/biliNote';
+import { getTypeLabel } from '../../../utils/biliNoteFormatter';
 import { OriginalQuotesList } from './OriginalQuotesList';
 
 export interface HighlightItemCardProps {
@@ -11,11 +24,22 @@ export interface HighlightItemCardProps {
   isExpanded: boolean;
   enableNumberKeySeek: boolean;
   currentPlaybackSec: number;
+  annotation?: UserAnnotation;
   onJump: (item: HighlightItem, index: number) => void;
   onToggleExpand: (id: string | number, e: React.MouseEvent) => void;
   onSeekQuote: (seconds: number) => void;
+  onSaveAnnotation?: (data: { type: UserAnnotationType; content: string }) => void;
+  onDeleteAnnotation?: () => void;
+  onInsertToNativeNote?: (withScreenshot: boolean) => void;
   cardRef?: (el: HTMLDivElement | null) => void;
 }
+
+const ANNOTATION_TYPES: Array<{ type: UserAnnotationType; label: string }> = [
+  { type: 'insight', label: '💡 启发' },
+  { type: 'question', label: '❓ 存疑' },
+  { type: 'action', label: '🎯 行动' },
+  { type: 'keypoint', label: '⭐ 重点' },
+];
 
 export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
   isDark,
@@ -25,13 +49,51 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
   isExpanded,
   enableNumberKeySeek,
   currentPlaybackSec,
+  annotation,
   onJump,
   onToggleExpand,
   onSeekQuote,
+  onSaveAnnotation,
+  onDeleteAnnotation,
+  onInsertToNativeNote,
   cardRef,
 }) => {
+  const [isEditingThought, setIsEditingThought] = useState<boolean>(false);
+  const [thoughtType, setThoughtType] = useState<UserAnnotationType>(
+    annotation?.type || 'insight'
+  );
+  const [thoughtContent, setThoughtContent] = useState<string>(
+    annotation?.content || ''
+  );
+
+  // Sync state if annotation updates externally
+  useEffect(() => {
+    if (annotation) {
+      setThoughtType(annotation.type);
+      setThoughtContent(annotation.content);
+    }
+  }, [annotation]);
+
   const hasQuotes = item.originalQuotes && item.originalQuotes.length > 0;
   const showNumberBadge = enableNumberKeySeek && index < 9;
+
+  const handleSaveThought = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (thoughtContent.trim()) {
+      onSaveAnnotation?.({
+        type: thoughtType,
+        content: thoughtContent.trim(),
+      });
+      setIsEditingThought(false);
+    }
+  };
+
+  const handleDeleteThought = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDeleteAnnotation?.();
+    setThoughtContent('');
+    setIsEditingThought(false);
+  };
 
   return (
     <div
@@ -70,6 +132,7 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
 
       {/* Content */}
       <div className="flex-1 min-w-0">
+        {/* Header row: title, timestamp & actions */}
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-2 min-w-0">
             <span
@@ -91,32 +154,59 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
             </span>
           </div>
 
-          {hasQuotes && (
+          {/* Action buttons on top right */}
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Thought trigger */}
             <button
               type="button"
-              onClick={(e) => onToggleExpand(item.id, e)}
-              className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded transition-all cursor-pointer shrink-0 ${
-                isExpanded
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsEditingThought((prev) => !prev);
+              }}
+              className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                annotation
                   ? isDark
-                    ? 'bg-sky-500/20 text-sky-400 hover:bg-sky-500/30'
-                    : 'bg-sky-100 text-sky-700 hover:bg-sky-200'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200'
                   : isDark
                   ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
                   : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/60'
               }`}
-              title={isExpanded ? '收起原文依据' : '展开原文字幕依据'}
+              title={annotation ? '查看/修改感悟' : '写下我的思考感悟'}
             >
-              <Quote className="w-2.5 h-2.5" />
-              <span>{isExpanded ? '收起' : '原文'}</span>
-              {isExpanded ? (
-                <ChevronUp className="w-2.5 h-2.5" />
-              ) : (
-                <ChevronDown className="w-2.5 h-2.5" />
-              )}
+              <MessageSquare className="w-2.5 h-2.5" />
+              <span>{annotation ? getTypeLabel(annotation.type) : '记感悟'}</span>
             </button>
-          )}
+
+            {/* Original quote toggle */}
+            {hasQuotes && (
+              <button
+                type="button"
+                onClick={(e) => onToggleExpand(item.id, e)}
+                className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                  isExpanded
+                    ? isDark
+                      ? 'bg-sky-500/20 text-sky-400 hover:bg-sky-500/30'
+                      : 'bg-sky-100 text-sky-700 hover:bg-sky-200'
+                    : isDark
+                    ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                    : 'text-slate-500 hover:text-slate-700 hover:bg-slate-200/60'
+                }`}
+                title={isExpanded ? '收起原文依据' : '展开原文字幕依据'}
+              >
+                <Quote className="w-2.5 h-2.5" />
+                <span>{isExpanded ? '收起' : '原文'}</span>
+                {isExpanded ? (
+                  <ChevronUp className="w-2.5 h-2.5" />
+                ) : (
+                  <ChevronDown className="w-2.5 h-2.5" />
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* AI Key Point */}
         {item.keyPoint && (
           <p
             className={`text-[11px] mt-1 leading-snug ${
@@ -126,6 +216,149 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
             {item.keyPoint}
           </p>
         )}
+
+        {/* Saved annotation preview (when form is not open) */}
+        {annotation && !isEditingThought && (
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsEditingThought(true);
+            }}
+            className={`mt-1.5 p-1.5 rounded-lg text-[10px] border leading-relaxed flex items-start justify-between gap-1.5 transition-colors ${
+              isDark
+                ? 'bg-amber-950/20 border-amber-800/30 text-amber-200/90 hover:border-amber-700/50'
+                : 'bg-amber-50/80 border-amber-200 text-amber-900 hover:border-amber-300'
+            }`}
+            title="点击修改感悟"
+          >
+            <div className="flex-1 min-w-0">
+              <span className="font-bold mr-1">{getTypeLabel(annotation.type)}:</span>
+              <span>{annotation.content}</span>
+            </div>
+          </div>
+        )}
+
+        {/* Inline Thought Form */}
+        {isEditingThought && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            className={`mt-2 p-2 rounded-lg border space-y-2 ${
+              isDark
+                ? 'bg-slate-900/90 border-slate-700 text-slate-200'
+                : 'bg-white border-slate-200 text-slate-800 shadow-sm'
+            }`}
+          >
+            {/* Chip selector */}
+            <div className="flex items-center gap-1 flex-wrap">
+              {ANNOTATION_TYPES.map((chip) => (
+                <button
+                  key={chip.type}
+                  type="button"
+                  onClick={() => setThoughtType(chip.type)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                    thoughtType === chip.type
+                      ? 'bg-sky-500 text-white border-sky-500 font-semibold'
+                      : isDark
+                      ? 'bg-slate-800 border-slate-700 text-slate-300 hover:bg-slate-700'
+                      : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {chip.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Input textarea */}
+            <textarea
+              value={thoughtContent}
+              onChange={(e) => setThoughtContent(e.target.value)}
+              placeholder="写下你对本章节的启发、存疑或实践灵感..."
+              rows={2}
+              className={`w-full text-[11px] p-1.5 rounded border resize-none focus:outline-none focus:ring-1 focus:ring-sky-500 ${
+                isDark
+                  ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500'
+                  : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
+              }`}
+            />
+
+            {/* Form actions */}
+            <div className="flex items-center justify-between pt-0.5">
+              <div className="flex items-center gap-1">
+                {annotation && (
+                  <button
+                    type="button"
+                    onClick={handleDeleteThought}
+                    className="inline-flex items-center gap-0.5 text-[10px] text-rose-400 hover:text-rose-500 cursor-pointer px-1 py-0.5"
+                    title="删除此感悟"
+                  >
+                    <Trash2 className="w-2.5 h-2.5" />
+                    <span>删除</span>
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingThought(false)}
+                  className={`text-[10px] px-2 py-0.5 rounded cursor-pointer ${
+                    isDark
+                      ? 'text-slate-400 hover:text-slate-200'
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveThought}
+                  disabled={!thoughtContent.trim()}
+                  className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded bg-sky-500 text-white font-medium hover:bg-sky-400 disabled:opacity-50 cursor-pointer"
+                >
+                  <Check className="w-2.5 h-2.5" />
+                  <span>保存感悟</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Action bar: Send to Native Note & Capture Screenshot */}
+        <div className="flex items-center justify-end gap-1.5 mt-2 pt-1 border-t border-slate-700/20">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onInsertToNativeNote?.(false);
+            }}
+            className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer ${
+              isDark
+                ? 'text-sky-300 bg-sky-950/40 border border-sky-800/40 hover:bg-sky-900/50'
+                : 'text-sky-700 bg-sky-50 border border-sky-200 hover:bg-sky-100'
+            }`}
+            title="将本章节观点（及您的感悟）记入 B站官方笔记"
+          >
+            <Pin className="w-2.5 h-2.5" />
+            <span>记入B站笔记</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onInsertToNativeNote?.(true);
+            }}
+            className={`inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer ${
+              isDark
+                ? 'text-cyan-300 bg-cyan-950/40 border border-cyan-800/40 hover:bg-cyan-900/50'
+                : 'text-cyan-700 bg-cyan-50 border border-cyan-200 hover:bg-cyan-100'
+            }`}
+            title="将本章节观点及当前画面截图精准记入 B站官方笔记"
+          >
+            <Camera className="w-2.5 h-2.5" />
+            <span>📷 附带截图记入</span>
+          </button>
+        </div>
 
         {/* Expandable Original Quotes */}
         {isExpanded && hasQuotes && (

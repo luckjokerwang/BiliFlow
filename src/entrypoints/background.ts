@@ -133,6 +133,10 @@ export default defineBackground(() => {
             settings.providers?.[0] ||
             DEFAULT_PROVIDERS[0];
 
+          const fallbackProvider = activeProvider.fallbackProviderId
+            ? settings.providers?.find((p) => p.id === activeProvider.fallbackProviderId)
+            : undefined;
+
           const summary = await generateVideoSummary({
             bvid,
             cid,
@@ -140,6 +144,8 @@ export default defineBackground(() => {
             subtitles,
             provider: activeProvider,
             model: settings.activeModel || activeProvider.selectedModel,
+            fallbackProvider,
+            fallbackModel: activeProvider.fallbackModel,
             enableFallback: settings.enableFallback ?? true,
           });
 

@@ -188,61 +188,95 @@ async function executeSingleChatCompletion(params: {
   apiKey: string;
   model: string;
   userPrompt: string;
+  maxRetries?: number;
 }): Promise<string> {
-  const { endpoint, apiKey, model, userPrompt } = params;
+  const { endpoint, apiKey, model, userPrompt, maxRetries = 2 } = params;
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
-        { role: 'user', content: userPrompt },
-      ],
-      temperature: 0.3,
-      response_format: { type: 'json_object' },
-    }),
-  });
+  let lastError: any = null;
 
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => '');
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const errJson = JSON.parse(errorBody);
-      if (errJson?.error?.message) {
-        if (response.status === 402 || errJson.error.message.toLowerCase().includes('insufficient balance')) {
-          throw new Error('账户余额不足 (Insufficient Balance)');
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 25000);
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'user', content: userPrompt },
+          ],
+          temperature: 0.3,
+          response_format: { type: 'json_object' },
+        }),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId));
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => '');
+        let errMessage = `HTTP ${response.status}: ${errorBody || response.statusText}`;
+        let isFatal = false;
+
+        try {
+          const errJson = JSON.parse(errorBody);
+          if (errJson?.error?.message) {
+            errMessage = errJson.error.message;
+          }
+        } catch (_) {}
+
+        if (response.status === 402 || errMessage.toLowerCase().includes('insufficient balance')) {
+          errMessage = '账户余额不足 (Insufficient Balance)';
+          isFatal = true;
+        } else if (response.status === 401) {
+          errMessage = 'API Key 无效或未授权 (401 Unauthorized)';
+          isFatal = true;
+        } else if (response.status === 404) {
+          errMessage = `模型或接口路径不存在 (404 Not Found): ${model}`;
+          isFatal = true;
         }
-        if (response.status === 401) {
-          throw new Error('API Key 无效或未授权 (401 Unauthorized)');
+
+        const error = new Error(`LLM 报错 (${model}): ${errMessage}`);
+        (error as any).status = response.status;
+        (error as any).isFatal = isFatal;
+
+        if (isFatal || attempt >= maxRetries || (response.status !== 429 && response.status < 500)) {
+          throw error;
         }
-        throw new Error(`LLM 报错 (${model}): ${errJson.error.message}`);
+
+        lastError = error;
+      } else {
+        const data = await response.json();
+        const rawContent = data.choices?.[0]?.message?.content;
+        if (!rawContent) {
+          throw new Error(`模型 ${model} 返回内容为空`);
+        }
+        return rawContent;
       }
-    } catch (e: any) {
-      if (
-        e?.message?.includes('账户余额不足') ||
-        e?.message?.includes('API Key 无效') ||
-        e?.message?.includes('LLM 报错')
-      ) {
-        throw e;
+    } catch (err: any) {
+      lastError = err;
+      if (err?.isFatal || attempt >= maxRetries) {
+        throw err;
       }
+
+      // Exponential backoff with jitter: 1s -> 2s (+ 0~200ms jitter)
+      const delayMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 200, 4000);
+      console.warn(
+        `[BiliFlow LLM] 请求【${model}】失败 (${err?.message || err})，${Math.round(delayMs)}ms 后进行第 ${attempt + 1}/${maxRetries} 次重试...`
+      );
+      await new Promise((r) => setTimeout(r, delayMs));
     }
-    throw new Error(`请求失败 (HTTP ${response.status}): ${errorBody || response.statusText}`);
   }
 
-  const data = await response.json();
-  const rawContent = data.choices?.[0]?.message?.content;
-  if (!rawContent) {
-    throw new Error(`模型 ${model} 返回内容为空`);
-  }
-  return rawContent;
+  throw lastError || new Error(`模型 ${model} 请求失败`);
 }
 
 /**
- * Generate structured video summary with automatic Fallback failover strategy.
+ * Generate structured video summary with automatic Cross-Provider Fallback failover strategy.
  */
 export async function generateVideoSummary(params: {
   bvid: string;
@@ -251,9 +285,21 @@ export async function generateVideoSummary(params: {
   subtitles: BiliRawSubtitleItem[];
   provider: ProviderConfig;
   model?: string;
+  fallbackProvider?: ProviderConfig;
+  fallbackModel?: string;
   enableFallback?: boolean;
 }): Promise<VideoSummaryResult> {
-  const { bvid, cid, title, subtitles, provider, model, enableFallback = true } = params;
+  const {
+    bvid,
+    cid,
+    title,
+    subtitles,
+    provider,
+    model,
+    fallbackProvider,
+    fallbackModel,
+    enableFallback = true,
+  } = params;
 
   if (!provider.apiKey) {
     throw new Error(`厂商【${provider.name}】未配置 API Key，请打开设置中心填入 Key。`);
@@ -287,11 +333,24 @@ ${formattedTranscript}
   const primaryModel =
     model || provider.selectedModel || provider.models[0] || 'deepseek-chat';
 
-  // Determine fallback model candidate
-  const fallbackCandidate =
-    provider.fallbackModel && provider.fallbackModel !== primaryModel
-      ? provider.fallbackModel
-      : provider.models.find((m) => m !== primaryModel);
+  // Determine fallback target: can be Cross-Provider OR Same-Provider
+  const hasCrossProvider =
+    fallbackProvider &&
+    fallbackProvider.apiKey &&
+    (fallbackProvider.id !== provider.id || Boolean(fallbackModel));
+
+  const targetFallbackProvider = hasCrossProvider ? fallbackProvider : provider;
+  const targetFallbackModel =
+    fallbackModel ||
+    targetFallbackProvider.fallbackModel ||
+    (targetFallbackProvider.models.find((m) => m !== primaryModel) || targetFallbackProvider.selectedModel || targetFallbackProvider.models[0]);
+
+  const canFailover =
+    enableFallback &&
+    targetFallbackProvider &&
+    Boolean(targetFallbackProvider.apiKey) &&
+    Boolean(targetFallbackModel) &&
+    (targetFallbackProvider.id !== provider.id || targetFallbackModel !== primaryModel);
 
   try {
     const rawContent = await executeSingleChatCompletion({
@@ -311,19 +370,21 @@ ${formattedTranscript}
       ...parsed,
       highlights: highlightsWithQuotes,
       usedModel: primaryModel,
+      usedProviderName: provider.name,
       isFallbackUsed: false,
     };
   } catch (primaryErr: any) {
     // If fallback is enabled and candidate model is available, attempt failover!
-    if (enableFallback && fallbackCandidate) {
+    if (canFailover) {
       console.warn(
-        `[BiliFlow Failover] 主模型【${primaryModel}】请求失败 (${primaryErr.message})，正在自动切换兜底模型【${fallbackCandidate}】...`
+        `[BiliFlow Failover] 主用【${provider.name} · ${primaryModel}】请求失败 (${primaryErr.message})，正在自动切换至【${targetFallbackProvider.name} · ${targetFallbackModel}】容灾兜底...`
       );
       try {
+        const fallbackEndpoint = formatBaseUrl(targetFallbackProvider.baseUrl, 'chat/completions');
         const fallbackContent = await executeSingleChatCompletion({
-          endpoint,
-          apiKey: provider.apiKey,
-          model: fallbackCandidate,
+          endpoint: fallbackEndpoint,
+          apiKey: targetFallbackProvider.apiKey,
+          model: targetFallbackModel,
           userPrompt,
         });
 
@@ -336,12 +397,13 @@ ${formattedTranscript}
         return {
           ...parsed,
           highlights: highlightsWithQuotes,
-          usedModel: fallbackCandidate,
+          usedModel: targetFallbackModel,
+          usedProviderName: targetFallbackProvider.name,
           isFallbackUsed: true,
         };
       } catch (fallbackErr: any) {
         throw new Error(
-          `主模型(${primaryModel})与兜底模型(${fallbackCandidate})均请求失败: ${fallbackErr.message}`
+          `主用【${provider.name} · ${primaryModel}】与兜底【${targetFallbackProvider.name} · ${targetFallbackModel}】均请求失败: ${fallbackErr.message}`
         );
       }
     }

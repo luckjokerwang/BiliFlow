@@ -1,5 +1,6 @@
 import React from 'react';
 import { HighlightItem } from '../../../types';
+import { UserAnnotation, UserAnnotationType } from '../../../types/biliNote';
 import { HighlightItemCard } from './HighlightItemCard';
 
 export interface HighlightListProps {
@@ -12,6 +13,13 @@ export interface HighlightListProps {
   onJump: (item: HighlightItem, index: number) => void;
   onToggleQuoteExpand: (id: string | number, e: React.MouseEvent) => void;
   onSeekQuote: (seconds: number) => void;
+  getAnnotationForHighlight?: (id: string | number) => UserAnnotation | undefined;
+  onSaveAnnotation?: (
+    highlight: HighlightItem,
+    data: { type: UserAnnotationType; content: string }
+  ) => void;
+  onDeleteAnnotation?: (annotationId: string) => void;
+  onInsertToNativeNote?: (highlight: HighlightItem, withScreenshot: boolean) => void;
   itemRefs: React.MutableRefObject<(HTMLDivElement | null)[]>;
 }
 
@@ -25,6 +33,10 @@ export const HighlightList: React.FC<HighlightListProps> = ({
   onJump,
   onToggleQuoteExpand,
   onSeekQuote,
+  getAnnotationForHighlight,
+  onSaveAnnotation,
+  onDeleteAnnotation,
+  onInsertToNativeNote,
   itemRefs,
 }) => {
   if (!highlights || highlights.length === 0) {
@@ -41,24 +53,36 @@ export const HighlightList: React.FC<HighlightListProps> = ({
       </div>
 
       <div className="space-y-1.5">
-        {highlights.map((item, idx) => (
-          <HighlightItemCard
-            key={item.id}
-            isDark={isDark}
-            item={item}
-            index={idx}
-            isSelected={selectedIndex === idx}
-            isExpanded={expandedQuoteIds.has(item.id)}
-            enableNumberKeySeek={enableNumberKeySeek}
-            currentPlaybackSec={currentPlaybackSec}
-            onJump={onJump}
-            onToggleExpand={onToggleQuoteExpand}
-            onSeekQuote={onSeekQuote}
-            cardRef={(el) => {
-              itemRefs.current[idx] = el;
-            }}
-          />
-        ))}
+        {highlights.map((item, idx) => {
+          const annotation = getAnnotationForHighlight?.(item.id);
+
+          return (
+            <HighlightItemCard
+              key={item.id}
+              isDark={isDark}
+              item={item}
+              index={idx}
+              isSelected={selectedIndex === idx}
+              isExpanded={expandedQuoteIds.has(item.id)}
+              enableNumberKeySeek={enableNumberKeySeek}
+              currentPlaybackSec={currentPlaybackSec}
+              annotation={annotation}
+              onJump={onJump}
+              onToggleExpand={onToggleQuoteExpand}
+              onSeekQuote={onSeekQuote}
+              onSaveAnnotation={(data) => onSaveAnnotation?.(item, data)}
+              onDeleteAnnotation={() => {
+                if (annotation) onDeleteAnnotation?.(annotation.id);
+              }}
+              onInsertToNativeNote={(withScreenshot) =>
+                onInsertToNativeNote?.(item, withScreenshot)
+              }
+              cardRef={(el) => {
+                itemRefs.current[idx] = el;
+              }}
+            />
+          );
+        })}
       </div>
     </div>
   );

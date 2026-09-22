@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { parseLLMSummaryOutput } from '../src/utils/llmParser';
+import {
+  parseLLMSummaryOutput,
+  cleanRawLLMText,
+  repairTruncatedJson,
+} from '../src/utils/llmParser';
 
 describe('llmParser', () => {
   const meta = {
@@ -63,7 +67,85 @@ describe('llmParser', () => {
     expect(result.highlights[0].title).toBe('自供电屏幕');
   });
 
-  it('throws error when JSON is invalid', () => {
+  it('filters out <think> tags from reasoning models (e.g. DeepSeek-R1)', () => {
+    const rawWithThink = `
+<think>
+用户想要一份结构化的视频亮点总结。
+我需要先仔细阅读视频字幕，发现以下关键点：
+1. 01:25 介绍了新电池材料
+2. 04:30 讨论了能源转换效率
+现在生成最终的 JSON 输出。
+</think>
+\`\`\`json
+{
+  "oneSentenceSummary": "新型石墨烯电池技术突破。",
+  "highlights": [
+    {
+      "timestamp": "01:25",
+      "title": "石墨烯电池结构",
+      "keyPoint": "采用多层纳米孔径设计提升能量密度。"
+    }
+  ]
+}
+\`\`\`
+`;
+
+    const result = parseLLMSummaryOutput(rawWithThink, meta);
+    expect(result.oneSentenceSummary).toBe('新型石墨烯电池技术突破。');
+    expect(result.highlights.length).toBe(1);
+    expect(result.highlights[0].title).toBe('石墨烯电池结构');
+  });
+
+  it('handles unclosed <think> tag when output was truncated mid-thought', () => {
+    const rawTruncatedThink = `
+<think>
+正在思考视频内容...
+`;
+    expect(() => parseLLMSummaryOutput(rawTruncatedThink, meta)).toThrow();
+  });
+
+  it('automatically repairs truncated JSON missing closing brackets', () => {
+    // Truncated JSON missing "]" and "}"
+    const truncated = `
+{
+  "oneSentenceSummary": "长视频要点分析。",
+  "highlights": [
+    {
+      "timestamp": "02:10",
+      "title": "起点分析",
+      "keyPoint": "分析了初始条件。"
+    },
+    {
+      "timestamp": "05:40",
+      "title": "核心突破",
+      "keyPoint": "技术指标提升 30%"
+`;
+
+    const result = parseLLMSummaryOutput(truncated, meta);
+    expect(result.oneSentenceSummary).toBe('长视频要点分析。');
+    expect(result.highlights.length).toBe(2);
+    expect(result.highlights[0].timestamp).toBe(130);
+    expect(result.highlights[1].timestamp).toBe(340);
+    expect(result.highlights[1].title).toBe('核心突破');
+  });
+
+  it('automatically repairs truncated JSON cut off inside a string literal', () => {
+    const cutOffInString = `
+{
+  "oneSentenceSummary": "视频要点总结。",
+  "highlights": [
+    {
+      "timestamp": "01:00",
+      "title": "第一部
+`;
+
+    const repaired = repairTruncatedJson(cutOffInString);
+    const parsed = JSON.parse(repaired);
+    expect(parsed.oneSentenceSummary).toBe('视频要点总结。');
+    expect(Array.isArray(parsed.highlights)).toBe(true);
+  });
+
+  it('throws error when JSON is invalid and irreparable', () => {
     expect(() => parseLLMSummaryOutput('invalid string without json', meta)).toThrow();
   });
 });

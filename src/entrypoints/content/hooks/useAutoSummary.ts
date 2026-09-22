@@ -183,7 +183,10 @@ export function useAutoSummary({
         if (currentVideoKeyRef.current === videoKey) {
           setSummary(sumRes.data);
           if (sumRes.data.isFallbackUsed) {
-            onToast?.(`⚡ 主模型异常，已自动启用兜底模型【${sumRes.data.usedModel}】完成提炼`);
+            const label = sumRes.data.usedProviderName
+              ? `【${sumRes.data.usedProviderName} · ${sumRes.data.usedModel}】`
+              : `【${sumRes.data.usedModel}】`;
+            onToast?.(`⚡ 主用服务异常，已自动启用兜底${label}完成提炼`);
           }
         }
       } catch (err: any) {

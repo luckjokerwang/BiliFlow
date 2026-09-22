@@ -290,8 +290,8 @@ export const ProviderConfigTab: React.FC<ProviderConfigTabProps> = ({
             </div>
           </div>
 
-          {/* Primary Model & Fallback Model Selectors */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Primary Model, Fallback Provider & Fallback Model Selectors */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Primary Model */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-400 flex items-center justify-between">
@@ -313,10 +313,38 @@ export const ProviderConfigTab: React.FC<ProviderConfigTabProps> = ({
               />
             </div>
 
+            {/* Fallback Provider (Cross-Provider Failover) */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-slate-400 flex items-center justify-between">
+                <span>兜底服务商 (Fallback Provider)</span>
+                <span className="text-[10px] text-amber-500 font-semibold">跨厂商容灾</span>
+              </label>
+              <select
+                value={selectedProvider.fallbackProviderId || ''}
+                onChange={(e) =>
+                  onUpdateSelectedProvider({ fallbackProviderId: e.target.value || undefined })
+                }
+                className={`w-full px-3 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-sky-500 transition-colors cursor-pointer ${
+                  isDark
+                    ? 'bg-slate-900/90 border-slate-700/80 text-white'
+                    : 'bg-slate-50 border-slate-200 text-slate-900'
+                }`}
+              >
+                <option value="">同主用厂商 ({selectedProvider.name || selectedProvider.id})</option>
+                {settings.providers
+                  .filter((p) => p.id !== selectedProvider.id)
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name || p.id} {p.apiKey ? '✓' : '(未填Key)'}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
             {/* Fallback Model */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-slate-400 flex items-center justify-between">
-                <span>兜底备用模型 (Fallback)</span>
+                <span>兜底备用模型 (Fallback Model)</span>
                 <span className="text-[10px] text-amber-500 font-semibold">
                   报错时自动切换
                 </span>
