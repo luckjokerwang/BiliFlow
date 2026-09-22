@@ -78,8 +78,15 @@ export default defineContentScript({
       }
     });
 
-    // 3. Custom event dispatched right before opening HUD
+    // 3. Custom event dispatched right before opening HUD or during SPA route transition
     window.addEventListener('biliflow:ensure-mount', ensureHostMounted);
+
+    const handleSpaNavigation = () => {
+      ensureHostMounted();
+      setTimeout(ensureHostMounted, 100);
+      setTimeout(ensureHostMounted, 500);
+    };
+    window.addEventListener('biliflow:spa-navigate', handleSpaNavigation);
 
     // 4. Periodic heartbeat check to automatically recover if B站 destroys the container during SPA navigation
     const mountHeartbeat = setInterval(() => {
@@ -95,6 +102,7 @@ export default defineContentScript({
       document.removeEventListener('mozfullscreenchange', handleFullscreenTransition);
       window.removeEventListener('resize', ensureHostMounted);
       window.removeEventListener('biliflow:ensure-mount', ensureHostMounted);
+      window.removeEventListener('biliflow:spa-navigate', handleSpaNavigation);
     });
   },
 });

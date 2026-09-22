@@ -41,12 +41,36 @@ export function useVideoController({
     return Date.now() < userManualActionUntilRef.current;
   }, []);
 
-  // Poll or listen for video playback position & duration
-  useEffect(() => {
-    let timer: any = null;
+  const currentVideoElRef = useRef<HTMLVideoElement | null>(null);
 
+  // Poll or listen for video playback position & duration with dynamic video re-attachment
+  useEffect(() => {
     const syncPlayback = () => {
       const video = getVideoElement();
+
+      // Dynamic re-attachment if video element was destroyed or recreated by Bilibili
+      if (video !== currentVideoElRef.current) {
+        if (currentVideoElRef.current) {
+          currentVideoElRef.current.removeEventListener('timeupdate', syncPlayback);
+          currentVideoElRef.current.removeEventListener('durationchange', syncPlayback);
+          currentVideoElRef.current.removeEventListener('loadedmetadata', syncPlayback);
+          currentVideoElRef.current.removeEventListener('play', syncPlayback);
+          currentVideoElRef.current.removeEventListener('pause', syncPlayback);
+          currentVideoElRef.current.removeEventListener('seeked', syncPlayback);
+        }
+
+        if (video) {
+          video.addEventListener('timeupdate', syncPlayback, { passive: true });
+          video.addEventListener('durationchange', syncPlayback, { passive: true });
+          video.addEventListener('loadedmetadata', syncPlayback, { passive: true });
+          video.addEventListener('play', syncPlayback, { passive: true });
+          video.addEventListener('pause', syncPlayback, { passive: true });
+          video.addEventListener('seeked', syncPlayback, { passive: true });
+        }
+
+        currentVideoElRef.current = video;
+      }
+
       if (video) {
         setCurrentPlaybackSec(video.currentTime || 0);
         if (video.duration && !isNaN(video.duration) && video.duration > 0) {
@@ -59,26 +83,20 @@ export function useVideoController({
       }
     };
 
-    const attachListeners = () => {
-      const video = getVideoElement();
-      if (video) {
-        video.addEventListener('timeupdate', syncPlayback, { passive: true });
-        video.addEventListener('durationchange', syncPlayback, { passive: true });
-        video.addEventListener('loadedmetadata', syncPlayback, { passive: true });
-      }
-    };
-
-    attachListeners();
-    // Periodic sync in case Bilibili replaces video element or in SPA transitions
-    timer = setInterval(syncPlayback, 500);
+    syncPlayback();
+    // Periodic sync in case Bilibili replaces video element or during SPA transitions
+    const timer = setInterval(syncPlayback, 500);
 
     return () => {
       clearInterval(timer);
-      const video = getVideoElement();
-      if (video) {
-        video.removeEventListener('timeupdate', syncPlayback);
-        video.removeEventListener('durationchange', syncPlayback);
-        video.removeEventListener('loadedmetadata', syncPlayback);
+      if (currentVideoElRef.current) {
+        currentVideoElRef.current.removeEventListener('timeupdate', syncPlayback);
+        currentVideoElRef.current.removeEventListener('durationchange', syncPlayback);
+        currentVideoElRef.current.removeEventListener('loadedmetadata', syncPlayback);
+        currentVideoElRef.current.removeEventListener('play', syncPlayback);
+        currentVideoElRef.current.removeEventListener('pause', syncPlayback);
+        currentVideoElRef.current.removeEventListener('seeked', syncPlayback);
+        currentVideoElRef.current = null;
       }
     };
   }, []);

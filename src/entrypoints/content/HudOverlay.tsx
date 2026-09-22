@@ -175,6 +175,12 @@ export const HudOverlay: React.FC = () => {
     },
   });
 
+  // Reset selected index & expanded quotes when switching to a new video
+  useEffect(() => {
+    setSelectedIndex(0);
+    setExpandedQuoteIds(new Set());
+  }, [summary?.bvid, summary?.cid]);
+
   // Synchronize Timeline Markers on Bilibili progress bar
   useEffect(() => {
     const updateMarkers = () => {
@@ -201,7 +207,10 @@ export const HudOverlay: React.FC = () => {
 
     updateMarkers();
     const interval = setInterval(updateMarkers, 2000);
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      cleanupPlayerInjections();
+    };
   }, [summary, duration, settings.showTimelineMarkers, settings.showHoverCard, seekTo, showToast]);
 
   // Copy Markdown to Clipboard

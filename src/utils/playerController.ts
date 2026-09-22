@@ -102,15 +102,43 @@ export function seekToSeconds(seconds: number): boolean {
   return true;
 }
 
-export function isUserTyping(): boolean {
-  const activeEl = document.activeElement;
-  if (!activeEl) return false;
+export function isUserTyping(e?: Event | KeyboardEvent): boolean {
+  // 1. Check document.activeElement
+  const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
+  if (activeEl) {
+    const tagName = activeEl.tagName.toUpperCase();
+    if (
+      tagName === 'INPUT' ||
+      tagName === 'TEXTAREA' ||
+      activeEl.getAttribute('contenteditable') === 'true' ||
+      (activeEl as HTMLElement).isContentEditable
+    ) {
+      return true;
+    }
+  }
 
-  const tagName = activeEl.tagName.toUpperCase();
-  const isInput = tagName === 'INPUT' || tagName === 'TEXTAREA';
-  const isEditable = activeEl.getAttribute('contenteditable') === 'true';
+  // 2. Check event target or composedPath for Shadow DOM inputs
+  if (e) {
+    const target = (e.target || (e.composedPath && e.composedPath()[0])) as any;
+    const isElement =
+      typeof HTMLElement !== 'undefined'
+        ? target instanceof HTMLElement
+        : Boolean(target && typeof target === 'object' && target.tagName);
 
-  return isInput || isEditable;
+    if (isElement && target) {
+      const tagName = (target.tagName || '').toUpperCase();
+      if (
+        tagName === 'INPUT' ||
+        tagName === 'TEXTAREA' ||
+        (typeof target.getAttribute === 'function' && target.getAttribute('contenteditable') === 'true') ||
+        target.isContentEditable
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
 }
 
 export function extractVideoMeta(): {

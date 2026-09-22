@@ -38,7 +38,7 @@ export const OptionsHeader: React.FC<OptionsHeaderProps> = ({
             >
               BiliFlow
               <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                v2.0.4
+                v2.0.5
               </span>
             </h1>
             <p className="text-[11px] text-slate-400">极速心流 · 模型工作台</p>

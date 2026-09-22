@@ -9,6 +9,8 @@ import {
 } from '../../../types';
 import { UserSettings } from '../../../types/settings';
 import { extractVideoMeta, getVideoDuration } from '../../../utils/playerController';
+import { cleanupPlayerInjections } from '../../../utils/playerInjector';
+import { onSpaNavigate } from '../../../utils/spaNavigation';
 
 export interface UseAutoSummaryProps {
   settings: UserSettings;
@@ -198,29 +200,43 @@ export function useAutoSummary({
     [settings.autoSummarize, settings.minDurationForAutoSec, onToast]
   );
 
-  // Monitor SPA URL / Video changes
+  // Monitor SPA URL / Video changes with 0ms reactive detection and instant state cleanup
   useEffect(() => {
-    let lastUrl = window.location.href;
-
-    const checkUrl = () => {
-      const cur = window.location.href;
-      if (cur !== lastUrl) {
-        lastUrl = cur;
-        loadSummaryForCurrentVideo(false, false);
-      }
-    };
-
-    loadSummaryForCurrentVideo(false, false);
-
-    const interval = setInterval(checkUrl, 1000);
-    window.addEventListener('popstate', checkUrl);
-
-    return () => {
-      clearInterval(interval);
-      window.removeEventListener('popstate', checkUrl);
+    const handleVideoChange = () => {
+      // 1. Immediately abort any in-flight task from previous video
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+
+      // 2. Immediately reset state to eliminate ghost data from previous video
+      setSummary(null);
+      setError(null);
+      setLoading(false);
+      setIsManualMode(false);
+      setVideoInfo(null);
+      currentVideoKeyRef.current = '';
+
+      // 3. Immediately clean up old timeline markers & hover cards on the player
+      cleanupPlayerInjections();
+
+      // 4. Load summary for the new video
+      loadSummaryForCurrentVideo(false, false);
+    };
+
+    // Initial load
+    loadSummaryForCurrentVideo(false, false);
+
+    // Subscribe to SPA 0ms navigation events + popstate + fallback polling
+    const unsubscribe = onSpaNavigate(() => {
+      handleVideoChange();
+    });
+
+    return () => {
+      unsubscribe();
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
+      cleanupPlayerInjections();
     };
   }, [loadSummaryForCurrentVideo]);
 
