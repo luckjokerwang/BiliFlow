@@ -20,7 +20,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
       - name: Install dependencies
@@ -54,7 +54,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload and Submit to Firefox Add-ons (AMO)
-        uses: browser-actions/release-firefox-addon@v1
+        uses: browser-actions/release-firefox-addon@v0
         with:
           addon-id: 'biliflow@luckjokerwang'
           addon-path: ${{ steps.locate_packages.outputs.firefox_zip }}

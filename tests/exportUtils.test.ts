@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   formatSummaryAsMarkdown,
   formatSummaryForComment,
@@ -61,11 +61,16 @@ describe('exportUtils', () => {
   describe('copyTextToClipboard', () => {
     beforeEach(() => {
       vi.restoreAllMocks();
+      vi.unstubAllGlobals();
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
     });
 
     it('should call navigator.clipboard.writeText if available', async () => {
       const writeTextMock = vi.fn().mockResolvedValue(undefined);
-      Object.assign(navigator, {
+      vi.stubGlobal('navigator', {
         clipboard: {
           writeText: writeTextMock,
         },
@@ -78,6 +83,12 @@ describe('exportUtils', () => {
 
     it('should return false for empty string', async () => {
       const res = await copyTextToClipboard('');
+      expect(res).toBe(false);
+    });
+
+    it('should return false when clipboard is unavailable and document is undefined', async () => {
+      vi.stubGlobal('navigator', {});
+      const res = await copyTextToClipboard('fallback test');
       expect(res).toBe(false);
     });
   });
