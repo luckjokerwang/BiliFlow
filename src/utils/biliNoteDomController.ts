@@ -188,12 +188,53 @@ export class BiliNoteDomController {
   }
 
   /**
+   * Inserts a structured, clickable timestamp tag directly into Quill
+   * without triggering Bilibili's modal confirmation dialog.
+   */
+  static insertTimestamp(sec?: number, timeStr?: string): HTMLElement | null {
+    const video = document.querySelector<HTMLVideoElement>('video');
+    const actualSec = typeof sec === 'number' ? sec : Math.floor(video?.currentTime || 0);
+    const m = Math.floor(actualSec / 60);
+    const s = actualSec % 60;
+    const formattedTime =
+      timeStr || `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+
+    return this.insertHtmlAtCursor(
+      `<p><strong class="biliflow-timestamp" data-seconds="${actualSec}" style="cursor: pointer; color: #00aeec; font-size: 14px; user-select: none;">🚩 ${formattedTime}</strong></p>`
+    );
+  }
+
+  /**
+   * If Bilibili's native timestamp confirmation dialog appears, automatically
+   * clicks '确定' so the user is never blocked by confirmation modals.
+   */
+  static autoConfirmNativeModal(): boolean {
+    const confirmBtns = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        '.bili-note-panel button, .bili-note button, .note-panel button, .bili-modal button'
+      )
+    );
+    const confirmBtn = confirmBtns.find(
+      (b) => b.textContent?.trim() === '确定' && !b.getAttribute('disabled')
+    );
+    if (confirmBtn) {
+      confirmBtn.click();
+      return true;
+    }
+    return false;
+  }
+
+  /**
    * Triggers Bilibili's native timestamp flag button in the note toolbar.
+   * Also triggers auto-confirm so that any modal dialog is dismissed immediately.
    */
   static triggerNativeTimestamp(): boolean {
     const { flagBtn } = this.findToolbarButtons();
     if (flagBtn) {
       flagBtn.click();
+      setTimeout(() => {
+        this.autoConfirmNativeModal();
+      }, 50);
       return true;
     }
     return false;
@@ -327,14 +368,8 @@ export class BiliNoteDomController {
       console.warn('[BiliFlow] Failed to collapse selection to editor end:', e);
     }
 
-    // 4. Try native flag button first; if not present, insert structured clickable tag
-    const hasFlag = this.triggerNativeTimestamp();
-    let anchorEl: HTMLElement | null = null;
-    if (!hasFlag) {
-      anchorEl = this.insertHtmlAtCursor(
-        `<p><strong class="biliflow-timestamp" data-seconds="${sec}" style="cursor:pointer; color:#00aeec;">🚩 [${timeStr}]</strong></p>`
-      );
-    }
+    // 4. Insert structured clickable timestamp directly (Zero confirmation modal)
+    const anchorEl = this.insertTimestamp(sec, timeStr);
 
     // Wait 120ms for Quill blot to settle
     await new Promise((r) => setTimeout(r, 120));
