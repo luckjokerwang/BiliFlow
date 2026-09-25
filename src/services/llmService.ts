@@ -30,6 +30,7 @@ const SYSTEM_PROMPT = `
 1. highlights 数量控制在 3 到 6 个最核心的节点。
 2. timestamp 必须严格对应字幕里出现的起始时间戳（格式 mm:ss 或 hh:mm:ss）。
 3. 语言保持客观、干练、直击要害。
+4. 提炼内容必须紧密围绕【视频标题】与实际字幕内容展开；若提供的字幕与视频标题完全不匹配（如数据源错位），请在 JSON 中返回 {"error": "字幕内容与视频标题不匹配，可能存在数据源错位"}。
 `.trim();
 
 export function formatBaseUrl(rawUrl: string, path: string): string {

@@ -129,7 +129,8 @@ export type MessageType =
   | 'FETCH_PROVIDER_MODELS'
   | 'OPEN_OPTIONS_PAGE'
   | 'GET_CACHE_STATS'
-  | 'CLEAR_CACHE';
+  | 'CLEAR_CACHE'
+  | 'DELETE_CACHED_SUMMARY';
 
 export interface ExtensionMessage<T = any> {
   type: MessageType;

@@ -148,6 +148,10 @@ export function parseLLMSummaryOutput(
     }
   }
 
+  if ((parsed as any)?.error && typeof (parsed as any).error === 'string') {
+    throw new Error((parsed as any).error);
+  }
+
   const rawHighlights = Array.isArray(parsed.highlights) ? parsed.highlights : [];
 
   const highlights: HighlightItem[] = rawHighlights.map((item, index) => {
@@ -171,6 +175,10 @@ export function parseLLMSummaryOutput(
       keyPoint: (item.keyPoint || item.point || item.description || '').trim(),
     };
   });
+
+  if (highlights.length === 0) {
+    throw new Error('LLM 未能提炼出有效的视频核心亮点。');
+  }
 
   return {
     bvid: meta.bvid,

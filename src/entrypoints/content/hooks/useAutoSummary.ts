@@ -11,6 +11,7 @@ import { UserSettings } from '../../../types/settings';
 import { extractVideoMeta, getVideoDuration } from '../../../utils/playerController';
 import { cleanupPlayerInjections } from '../../../utils/playerInjector';
 import { onSpaNavigate } from '../../../utils/spaNavigation';
+import { isCachedSummaryValid } from '../../../services/summaryCacheService';
 
 export interface UseAutoSummaryProps {
   settings: UserSettings;
@@ -66,6 +67,8 @@ export function useAutoSummary({
 
   const currentVideoKeyRef = useRef<string>('');
   const abortControllerRef = useRef<AbortController | null>(null);
+  const requestIdRef = useRef<number>(0);
+  const resolvedInfoRef = useRef<ResolvedVideoInfo | null>(null);
 
   const loadSummaryForCurrentVideo = useCallback(
     async (forceRefresh = false, explicitManualTrigger = false) => {
@@ -76,14 +79,23 @@ export function useAutoSummary({
         return;
       }
 
-      // Cancel any previous in-flight task
+      // Cancel any previous in-flight task and bump request token
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
+      const requestId = ++requestIdRef.current;
 
       setError(null);
+
+      // If forceRefresh, immediately purge cache in background
+      if (forceRefresh && meta.bvid) {
+        safeSendMessage({
+          type: 'DELETE_CACHED_SUMMARY',
+          payload: { bvid: meta.bvid, cid: resolvedInfoRef.current?.cid || '' },
+        }).catch(() => {});
+      }
 
       try {
         // 1. Resolve video metadata
@@ -92,13 +104,14 @@ export function useAutoSummary({
           payload: { bvid: meta.bvid, pIndex: meta.pIndex },
         });
 
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
 
         if (!resolveRes.success || !resolveRes.data) {
           throw new Error(resolveRes.error || '解析视频信息失败');
         }
 
         const resolved = resolveRes.data;
+        resolvedInfoRef.current = resolved;
         const videoDuration = resolved.duration || getVideoDuration() || 0;
         resolved.duration = videoDuration;
         setVideoInfo(resolved);
@@ -113,14 +126,31 @@ export function useAutoSummary({
             payload: { bvid: resolved.bvid, cid: resolved.cid },
           });
 
-          if (abortController.signal.aborted) return;
+          if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
 
           if (cachedRes.success && cachedRes.data) {
-            if (currentVideoKeyRef.current === videoKey) {
-              setSummary(cachedRes.data);
+            const cached = cachedRes.data;
+            const isValid = isCachedSummaryValid(cached, {
+              bvid: resolved.bvid,
+              cid: resolved.cid,
+              title: resolved.title,
+              duration: videoDuration,
+            });
+
+            if (isValid && currentVideoKeyRef.current === videoKey) {
+              setSummary(cached);
               setIsManualMode(false);
               setLoading(false);
               return;
+            } else if (!isValid) {
+              console.warn(
+                '[BiliFlow] Cached summary mismatch or corrupted, auto-purging:',
+                videoKey
+              );
+              safeSendMessage({
+                type: 'DELETE_CACHED_SUMMARY',
+                payload: { bvid: resolved.bvid, cid: resolved.cid },
+              }).catch(() => {});
             }
           }
         }
@@ -153,7 +183,7 @@ export function useAutoSummary({
           payload: { bvid: resolved.bvid, cid: resolved.cid, aid: resolved.aid },
         });
 
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
 
         const validSubtitles = Array.isArray(subRes.data)
           ? subRes.data.filter((item) => item && item.content && item.content.trim().length > 0)
@@ -174,13 +204,13 @@ export function useAutoSummary({
           },
         });
 
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
 
         if (!sumRes.success || !sumRes.data) {
           throw new Error(sumRes.error || '生成总结失败，请检查 API Key 配置。');
         }
 
-        if (currentVideoKeyRef.current === videoKey) {
+        if (currentVideoKeyRef.current === videoKey && requestId === requestIdRef.current) {
           setSummary(sumRes.data);
           if (sumRes.data.isFallbackUsed) {
             const label = sumRes.data.usedProviderName
@@ -190,12 +220,23 @@ export function useAutoSummary({
           }
         }
       } catch (err: any) {
-        if (abortController.signal.aborted) return;
+        if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
         console.error('[BiliFlow] Error loading summary:', err);
         setSummary(null);
         setError(err?.message || '处理发生异常');
+
+        // On failure (especially missing subtitles), purge any potential dirty cache
+        if (resolvedInfoRef.current?.bvid && resolvedInfoRef.current?.cid) {
+          safeSendMessage({
+            type: 'DELETE_CACHED_SUMMARY',
+            payload: {
+              bvid: resolvedInfoRef.current.bvid,
+              cid: resolvedInfoRef.current.cid,
+            },
+          }).catch(() => {});
+        }
       } finally {
-        if (!abortController.signal.aborted) {
+        if (!abortController.signal.aborted && requestId === requestIdRef.current) {
           setLoading(false);
         }
       }
@@ -210,6 +251,8 @@ export function useAutoSummary({
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
+      requestIdRef.current++;
+      resolvedInfoRef.current = null;
 
       // 2. Immediately reset state to eliminate ghost data from previous video
       setSummary(null);

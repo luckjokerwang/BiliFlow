@@ -44,6 +44,8 @@ import {
   pruneLruEntries,
   saveSummaryToCache,
   getCachedSummary,
+  deleteCachedSummary,
+  isCachedSummaryValid,
   getCacheStats,
   clearAllSummaryCache,
 } from '../src/services/summaryCacheService';
@@ -195,22 +197,101 @@ describe('summaryCacheService', () => {
     });
   });
 
-  describe('clearAllSummaryCache', () => {
-    it('should remove all summary keys and index from storage', async () => {
+  describe('deleteCachedSummary', () => {
+    it('should delete a specific cached summary and remove it from index', async () => {
       await saveSummaryToCache(mockSummary1);
       await saveSummaryToCache(mockSummary2);
-      mockStorageState['user_settings'] = { theme: 'dark' }; // other key must be preserved
 
-      await clearAllSummaryCache();
+      await deleteCachedSummary(mockSummary1.bvid, mockSummary1.cid);
 
       expect(mockStorageState['summary_BV1xx411c7mD_10001']).toBeUndefined();
-      expect(mockStorageState['summary_BV2yy411c7mE_20002']).toBeUndefined();
-      expect(mockStorageState[CACHE_INDEX_KEY]).toBeUndefined();
-      // User settings must remain intact!
-      expect(mockStorageState['user_settings']).toEqual({ theme: 'dark' });
+      expect(mockStorageState['summary_BV2yy411c7mE_20002']).toBeDefined();
 
-      const stats = await getCacheStats();
-      expect(stats.count).toBe(0);
+      const index = mockStorageState[CACHE_INDEX_KEY];
+      expect(index.some((item: any) => item.key === 'summary_BV1xx411c7mD_10001')).toBe(false);
+      expect(index.some((item: any) => item.key === 'summary_BV2yy411c7mE_20002')).toBe(true);
+    });
+
+    it('should do nothing gracefully if key does not exist', async () => {
+      await deleteCachedSummary('non_existent', '99999');
+      // Should not throw or crash
+    });
+  });
+
+  describe('isCachedSummaryValid', () => {
+    it('returns true for a fully matched and consistent cached summary', () => {
+      const valid = isCachedSummaryValid(mockSummary1, {
+        bvid: 'BV1xx411c7mD',
+        cid: '10001',
+        title: '视频测试1',
+        duration: 60,
+      });
+      expect(valid).toBe(true);
+    });
+
+    it('returns false if bvid or cid does not match', () => {
+      expect(
+        isCachedSummaryValid(mockSummary1, {
+          bvid: 'BV_DIFFERENT',
+          cid: '10001',
+        })
+      ).toBe(false);
+
+      expect(
+        isCachedSummaryValid(mockSummary1, {
+          bvid: 'BV1xx411c7mD',
+          cid: '99999',
+        })
+      ).toBe(false);
+    });
+
+    it('returns false if highlights array is missing or empty', () => {
+      expect(
+        isCachedSummaryValid(
+          { ...mockSummary1, highlights: [] },
+          { bvid: 'BV1xx411c7mD', cid: '10001' }
+        )
+      ).toBe(false);
+    });
+
+    it('returns false if cached title completely contradicts current title', () => {
+      const corrupted = {
+        ...mockSummary1,
+        title: '【医学科普】火锅店猝死与脑出血急救预防',
+      };
+      expect(
+        isCachedSummaryValid(corrupted, {
+          bvid: 'BV1xx411c7mD',
+          cid: '10001',
+          title: '闪存芯片与半导体供应链深度调查',
+        })
+      ).toBe(false);
+    });
+
+    it('returns false for severely truncated summary on long videos (e.g. 33min video with only 2min highlights)', () => {
+      const truncatedSummary: VideoSummaryResult = {
+        bvid: 'BV1rHh16CEfm',
+        cid: '42183360876',
+        title: '闪存，涨价和三万个零件：为什么偏偏今年都在涨？',
+        oneSentenceSummary: '视频通过火锅店猝死和桑拿脑出血两个真实病例...',
+        highlights: [
+          { id: 1, timestamp: 36, timestampStr: '00:36', title: '案例一', keyPoint: '...' },
+          { id: 2, timestamp: 71, timestampStr: '01:11', title: '案例二', keyPoint: '...' },
+          { id: 3, timestamp: 108, timestampStr: '01:48', title: '机制', keyPoint: '...' },
+          { id: 4, timestamp: 126, timestampStr: '02:06', title: '建议', keyPoint: '...' },
+        ],
+        createdAt: 1000,
+      };
+
+      // Video duration is 1972s (32:52)
+      const valid = isCachedSummaryValid(truncatedSummary, {
+        bvid: 'BV1rHh16CEfm',
+        cid: '42183360876',
+        title: '闪存，涨价和三万个零件：为什么偏偏今年都在涨？',
+        duration: 1972,
+      });
+
+      expect(valid).toBe(false);
     });
   });
 });

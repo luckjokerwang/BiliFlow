@@ -14,6 +14,7 @@ export interface UserAnnotation {
   content: string;            // User's personal reflection or thought
   highlightId?: number | string; // Bound highlight card ID
   hasScreenshot?: boolean;
+  screenshotDataUrl?: string; // Base64 data URL for in-flow captured frame
   createdAt: number;
   updatedAt: number;
 }

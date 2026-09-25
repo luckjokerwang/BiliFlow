@@ -16,6 +16,7 @@ import {
 import {
   saveSummaryToCache,
   getCachedSummary,
+  deleteCachedSummary,
   getCacheStats,
   clearAllSummaryCache,
 } from '../services/summaryCacheService';
@@ -25,6 +26,11 @@ export default defineBackground(() => {
 
   // Initialize or migrate user settings on install/update
   browser.runtime.onInstalled.addListener(async () => {
+    // Purge any known corrupted or poisoned cache entries on update
+    try {
+      await deleteCachedSummary('BV1rHh16CEfm', '42183360876');
+    } catch (_) {}
+
     const data = await browser.storage.local.get('user_settings');
     if (!data.user_settings) {
       await browser.storage.local.set({ user_settings: DEFAULT_SETTINGS });
@@ -159,6 +165,14 @@ export default defineBackground(() => {
           const { bvid, cid } = message.payload;
           const cached = await getCachedSummary(bvid, cid);
           return { success: true, data: cached };
+        }
+
+        case 'DELETE_CACHED_SUMMARY': {
+          const { bvid, cid } = message.payload || {};
+          if (bvid && cid) {
+            await deleteCachedSummary(bvid, cid);
+          }
+          return { success: true, data: null };
         }
 
         case 'GET_CACHE_STATS': {

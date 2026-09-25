@@ -121,6 +121,94 @@ export async function getCachedSummary(
 }
 
 /**
+ * Deletes a specific video summary from storage and updates the LRU index.
+ */
+export async function deleteCachedSummary(
+  bvid: string,
+  cid: string
+): Promise<void> {
+  if (!bvid || !cid || !browser?.storage?.local) return;
+
+  const key = `summary_${bvid}_${cid}`;
+  try {
+    const indexData = await browser.storage.local.get(CACHE_INDEX_KEY);
+    let index: CacheIndexEntry[] = Array.isArray(indexData[CACHE_INDEX_KEY])
+      ? indexData[CACHE_INDEX_KEY]
+      : [];
+
+    index = index.filter((item) => item.key !== key);
+
+    await browser.storage.local.remove(key);
+    await browser.storage.local.set({ [CACHE_INDEX_KEY]: index });
+  } catch (err) {
+    console.warn('[BiliFlow Cache] Failed to delete cached summary:', err);
+  }
+}
+
+/**
+ * Validates whether a cached summary is healthy, authentic, and consistent
+ * with the currently playing video metadata.
+ */
+export function isCachedSummaryValid(
+  cached: VideoSummaryResult | null | undefined,
+  currentVideo: {
+    bvid: string;
+    cid: string;
+    title?: string;
+    duration?: number;
+  }
+): boolean {
+  if (!cached || !cached.bvid || !cached.cid) return false;
+  if (cached.bvid !== currentVideo.bvid || cached.cid !== currentVideo.cid) return false;
+
+  // Must contain highlights
+  if (!Array.isArray(cached.highlights) || cached.highlights.length === 0) return false;
+
+  // Title relevance check: if both titles exist and are non-empty, ensure basic consistency
+  if (cached.title && currentVideo.title) {
+    const normalize = (t: string) =>
+      t
+        .toLowerCase()
+        .replace(/【[^】]*】/g, '')
+        .replace(/\[[^\]]*\]/g, '')
+        .replace(/_哔哩哔哩_bilibili/g, '')
+        .replace(/[^\p{L}\p{N}]/gu, '')
+        .trim();
+
+    const normCached = normalize(cached.title);
+    const normCurrent = normalize(currentVideo.title);
+
+    // If current title is substantially different from cached title
+    if (
+      normCached.length >= 4 &&
+      normCurrent.length >= 4 &&
+      !normCached.includes(normCurrent.slice(0, 4)) &&
+      !normCurrent.includes(normCached.slice(0, 4))
+    ) {
+      return false;
+    }
+  }
+
+  // Duration coverage check: if video duration is long (>= 10 minutes / 600s),
+  // highlights must not be truncated to merely the first 2-3 minutes.
+  const duration = currentVideo.duration || 0;
+  if (duration >= 600) {
+    const maxHighlightTs = Math.max(
+      ...cached.highlights.map((h) =>
+        typeof h.timestamp === 'number' ? h.timestamp : h.timestampSec ?? 0
+      )
+    );
+
+    // If the entire summary ends before 180s on a 10+ minute video (covering < 15%), it is heavily suspect
+    if (maxHighlightTs > 0 && maxHighlightTs < 180 && maxHighlightTs / duration < 0.15) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
  * Calculates current cache statistics (count and estimated size).
  */
 export async function getCacheStats(
