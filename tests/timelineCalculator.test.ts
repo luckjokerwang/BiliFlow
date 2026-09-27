@@ -162,6 +162,21 @@ describe('findActiveHighlightIndex', () => {
     expect(findActiveHighlightIndex(highlights, 120)).toBe(2);
     expect(findActiveHighlightIndex(highlights, 300)).toBe(2);
   });
+
+  it('correctly handles string timestamps (e.g. "01:37" or timestampStr)', () => {
+    const stringHighlights: any[] = [
+      { id: '1', title: 'Part 1', timestamp: '00:30' },
+      { id: '2', title: 'Part 2', timestamp: '02:15' },
+      { id: '3', title: 'Part 3', timestamp: '05:00' },
+    ];
+
+    expect(findActiveHighlightIndex(stringHighlights, 10)).toBe(0);
+    expect(findActiveHighlightIndex(stringHighlights, 30)).toBe(0);
+    expect(findActiveHighlightIndex(stringHighlights, 45)).toBe(0);
+    expect(findActiveHighlightIndex(stringHighlights, 135)).toBe(1); // 02:15 = 135s
+    expect(findActiveHighlightIndex(stringHighlights, 300)).toBe(2); // 05:00 = 300s
+    expect(findActiveHighlightIndex(stringHighlights, 600)).toBe(2);
+  });
 });
 
 describe('findActiveQuoteIndex', () => {

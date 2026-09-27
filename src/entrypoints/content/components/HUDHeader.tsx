@@ -30,7 +30,7 @@ export const HUDHeader: React.FC<HUDHeaderProps> = ({
 }) => {
   return (
     <div
-      className={`p-3.5 border-b flex items-center justify-between select-none ${
+      className={`p-3.5 border-b flex items-center justify-between select-none shrink-0 ${
         isDark ? 'border-slate-800' : 'border-slate-100'
       }`}
     >

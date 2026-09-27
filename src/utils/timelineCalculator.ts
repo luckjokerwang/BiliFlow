@@ -105,10 +105,20 @@ export function findActiveHighlightIndex(
 
   let activeIndex = 0;
   for (let i = 0; i < highlights.length; i++) {
-    const hTime =
-      typeof highlights[i].timestamp === 'number'
-        ? highlights[i].timestamp
-        : (highlights[i].timestampSec ?? 0);
+    const h = highlights[i];
+    let hTime: number;
+    if (typeof h.timestamp === 'number' && !isNaN(h.timestamp)) {
+      hTime = h.timestamp;
+    } else if (typeof h.timestampSec === 'number' && !isNaN(h.timestampSec)) {
+      hTime = h.timestampSec;
+    } else if (typeof h.timestamp === 'string') {
+      hTime = parseTimestamp(h.timestamp);
+    } else if (typeof h.timestampStr === 'string') {
+      hTime = parseTimestamp(h.timestampStr);
+    } else {
+      hTime = 0;
+    }
+
     if (hTime <= currentSec) {
       activeIndex = i;
     } else {

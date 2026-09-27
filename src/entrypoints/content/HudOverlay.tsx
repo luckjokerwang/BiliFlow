@@ -86,46 +86,66 @@ export const HudOverlay: React.FC = () => {
     activeHighlightIndex,
     seekTo,
     markUserManualAction,
+    isUserManualActionActive,
   } = useVideoController({
     highlights: summary?.highlights || [],
   });
 
-  // Center active highlight in scroll view
-  const scrollToActiveItem = useCallback((index: number) => {
-    requestAnimationFrame(() => {
-      const container = scrollContainerRef.current;
-      const targetEl = itemRefs.current[index];
-      if (!container || !targetEl) return;
+  // Center active highlight in scroll view with visibility awareness
+  const scrollToActiveItem = useCallback(
+    (index: number, forceCenter: boolean = false) => {
+      requestAnimationFrame(() => {
+        const container = scrollContainerRef.current;
+        const targetEl = itemRefs.current[index];
+        if (!container || !targetEl) return;
 
-      const containerRect = container.getBoundingClientRect();
-      const targetRect = targetEl.getBoundingClientRect();
-      const relativeTop = targetRect.top - containerRect.top + container.scrollTop;
-      const targetScrollTop = Math.max(
-        0,
-        relativeTop - container.clientHeight / 2 + targetEl.clientHeight / 2
-      );
+        const containerRect = container.getBoundingClientRect();
+        const targetRect = targetEl.getBoundingClientRect();
 
-      container.scrollTo({
-        top: targetScrollTop,
-        behavior: 'smooth',
+        // If not forcing center, check if the card is already comfortably visible
+        // with safety margins from top (8px) and bottom (8px)
+        if (!forceCenter) {
+          const isComfortablyVisible =
+            targetRect.top >= containerRect.top + 8 &&
+            targetRect.bottom <= containerRect.bottom - 8;
+
+          if (isComfortablyVisible) {
+            return;
+          }
+        }
+
+        const relativeTop = targetRect.top - containerRect.top + container.scrollTop;
+        const targetScrollTop = Math.max(
+          0,
+          relativeTop - container.clientHeight / 2 + targetEl.clientHeight / 2
+        );
+
+        container.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth',
+        });
       });
-    });
-  }, []);
+    },
+    []
+  );
 
-  // Sync selected index when playback reaches a new highlight node
+  // Sync selected index and smoothly follow active highlight node during playback
   useEffect(() => {
     if (activeHighlightIndex >= 0 && summary?.highlights && summary.highlights.length > 0) {
       setSelectedIndex(activeHighlightIndex);
-      scrollToActiveItem(activeHighlightIndex);
+      // Auto-follow during natural playback if user isn't actively manual-scrolling
+      if (!isUserManualActionActive()) {
+        scrollToActiveItem(activeHighlightIndex, false);
+      }
     }
-  }, [activeHighlightIndex, summary, scrollToActiveItem]);
+  }, [activeHighlightIndex, summary, scrollToActiveItem, isUserManualActionActive]);
 
   // Jump to specific highlight
   const handleJump = useCallback(
     (highlight: HighlightItem, index: number) => {
       markUserManualAction();
       setSelectedIndex(index);
-      scrollToActiveItem(index);
+      scrollToActiveItem(index, true);
 
       const targetSeconds =
         typeof highlight.timestamp === 'number'
@@ -272,7 +292,7 @@ export const HudOverlay: React.FC = () => {
       {/* Floating HUD Card Container */}
       {isOpen && (
         <div
-          className={`fixed top-14 right-6 w-[370px] sm:w-[410px] max-h-[85vh] flex flex-col rounded-2xl border shadow-2xl backdrop-blur-xl pointer-events-auto transition-all duration-200 overflow-hidden animate-fade-in ${
+          className={`fixed top-[68px] right-6 w-[370px] sm:w-[410px] max-h-[min(585px,calc(100vh-8rem))] flex flex-col rounded-2xl border shadow-2xl backdrop-blur-xl pointer-events-auto transition-all duration-200 overflow-hidden animate-fade-in ${
             isDark
               ? 'bg-[#0f172a]/95 border-slate-700/80 text-slate-100 shadow-sky-950/40'
               : 'bg-white/95 border-slate-200/90 text-slate-800 shadow-slate-300/60'
@@ -298,7 +318,7 @@ export const HudOverlay: React.FC = () => {
             ref={scrollContainerRef}
             onWheel={markUserManualAction}
             onTouchMove={markUserManualAction}
-            className="p-4 max-h-[70vh] overflow-y-auto scroll-smooth space-y-3.5"
+            className="flex-1 min-h-0 p-4 overflow-y-auto scroll-smooth space-y-3.5"
           >
             {/* Loading State */}
             {loading && (
