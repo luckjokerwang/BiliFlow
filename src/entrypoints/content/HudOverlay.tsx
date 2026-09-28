@@ -93,7 +93,11 @@ export const HudOverlay: React.FC = () => {
 
   // Center active highlight in scroll view with visibility awareness
   const scrollToActiveItem = useCallback(
-    (index: number, forceCenter: boolean = false) => {
+    (
+      index: number,
+      forceCenter: boolean = false,
+      behavior: ScrollBehavior = 'smooth'
+    ) => {
       requestAnimationFrame(() => {
         const container = scrollContainerRef.current;
         const targetEl = itemRefs.current[index];
@@ -122,23 +126,65 @@ export const HudOverlay: React.FC = () => {
 
         container.scrollTo({
           top: targetScrollTop,
-          behavior: 'smooth',
+          behavior,
         });
       });
     },
     []
   );
 
+  // Focus and center current active highlight whenever HUD is opened or shown
+  useEffect(() => {
+    if (isOpen && summary?.highlights && summary.highlights.length > 0 && activeHighlightIndex >= 0) {
+      setSelectedIndex(activeHighlightIndex);
+      // Double RAF ensures newly mounted DOM nodes have finished layout & measurement
+      let cancelled = false;
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (!cancelled) {
+            scrollToActiveItem(activeHighlightIndex, true, 'auto');
+          }
+        });
+      });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+  }, [isOpen, summary?.highlights?.length, scrollToActiveItem]);
+
   // Sync selected index and smoothly follow active highlight node during playback
   useEffect(() => {
     if (activeHighlightIndex >= 0 && summary?.highlights && summary.highlights.length > 0) {
       setSelectedIndex(activeHighlightIndex);
       // Auto-follow during natural playback if user isn't actively manual-scrolling
-      if (!isUserManualActionActive()) {
-        scrollToActiveItem(activeHighlightIndex, false);
+      if (isOpen && !isUserManualActionActive()) {
+        scrollToActiveItem(activeHighlightIndex, false, 'smooth');
       }
     }
-  }, [activeHighlightIndex, summary, scrollToActiveItem, isUserManualActionActive]);
+  }, [activeHighlightIndex, summary, scrollToActiveItem, isUserManualActionActive, isOpen]);
+
+  // Recalibrate scroll view when returning to tab
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (
+        document.visibilityState === 'visible' &&
+        isOpen &&
+        summary?.highlights &&
+        summary.highlights.length > 0 &&
+        activeHighlightIndex >= 0
+      ) {
+        requestAnimationFrame(() => {
+          scrollToActiveItem(activeHighlightIndex, false, 'smooth');
+        });
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isOpen, activeHighlightIndex, summary, scrollToActiveItem]);
 
   // Jump to specific highlight
   const handleJump = useCallback(

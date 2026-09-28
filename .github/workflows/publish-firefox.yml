@@ -60,5 +60,6 @@ jobs:
           addon-path: ${{ steps.locate_packages.outputs.firefox_zip }}
           source-path: ${{ steps.locate_packages.outputs.sources_zip }}
           channel: 'listed'
+          release-notes: ${{ github.event.head_commit.message || github.ref_name }}
           auth-api-issuer: ${{ secrets.AMO_JWT_ISSUER }}
           auth-api-secret: ${{ secrets.AMO_JWT_SECRET }}
