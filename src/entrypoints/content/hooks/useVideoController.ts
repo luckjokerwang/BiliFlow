@@ -104,8 +104,7 @@ export function useVideoController({
   // Compute active highlight
   const activeHighlightIndex = findActiveHighlightIndex(
     highlights,
-    currentPlaybackSec,
-    duration
+    currentPlaybackSec
   );
 
   // Compute active quote within active highlight

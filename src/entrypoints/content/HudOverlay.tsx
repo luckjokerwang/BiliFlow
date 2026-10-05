@@ -324,7 +324,7 @@ export const HudOverlay: React.FC = () => {
   // Open Options page safely
   const handleOpenOptions = () => {
     browser.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
-      window.open(browser.runtime.getURL('options.html'));
+      window.open(browser.runtime.getURL('/options.html'));
     });
   };
 

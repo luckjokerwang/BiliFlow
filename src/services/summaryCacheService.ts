@@ -98,7 +98,7 @@ export async function getCachedSummary(
 
   const key = `summary_${bvid}_${cid}`;
   const data = await browser.storage.local.get([key, CACHE_INDEX_KEY]);
-  const summary: VideoSummaryResult | undefined = data[key];
+  const summary: VideoSummaryResult | undefined = data[key] as VideoSummaryResult | undefined;
 
   if (!summary) return null;
 

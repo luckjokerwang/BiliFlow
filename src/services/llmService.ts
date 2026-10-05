@@ -84,15 +84,15 @@ export async function fetchRemoteModels(config: {
     const data = await response.json();
     const rawList = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
 
-    const modelIds = rawList
+    const modelIds: string[] = rawList
       .map((item: any) => (typeof item === 'string' ? item : item?.id || item?.name))
-      .filter((id: any) => typeof id === 'string' && id.trim().length > 0);
+      .filter((id: any): id is string => typeof id === 'string' && id.trim().length > 0);
 
     if (modelIds.length === 0) {
       throw new Error('远程接口已连通，但返回的模型列表为空。');
     }
 
-    return Array.from(new Set(modelIds)).sort();
+    return Array.from(new Set<string>(modelIds)).sort();
   } catch (err: any) {
     if (err?.name === 'AbortError') {
       throw new Error('获取模型列表超时 (12s)，请检查网络连接或接口地址是否正确。');
@@ -364,7 +364,7 @@ ${formattedTranscript}
     const parsed = parseLLMSummaryOutput(rawContent, { bvid, cid, title });
     const highlightsWithQuotes = parsed.highlights.map((item) => ({
       ...item,
-      originalQuotes: extractQuotesForHighlight(item.timestamp, subtitles),
+      originalQuotes: extractQuotesForHighlight(item.timestamp ?? item.timestampSec ?? 0, subtitles),
     }));
 
     return {
@@ -392,7 +392,7 @@ ${formattedTranscript}
         const parsed = parseLLMSummaryOutput(fallbackContent, { bvid, cid, title });
         const highlightsWithQuotes = parsed.highlights.map((item) => ({
           ...item,
-          originalQuotes: extractQuotesForHighlight(item.timestamp, subtitles),
+          originalQuotes: extractQuotesForHighlight(item.timestamp ?? item.timestampSec ?? 0, subtitles),
         }));
 
         return {

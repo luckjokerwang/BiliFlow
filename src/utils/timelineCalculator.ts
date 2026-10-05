@@ -62,7 +62,7 @@ export function calculateTimelineMarkers(
       // Clamp between 0.8% and 99.2% so markers don't overflow the progress bar ends
       const percentage = Number(Math.max(0.8, Math.min(rawPercent, 99.2)).toFixed(2));
 
-      return {
+      const marker: TimelineMarker = {
         id: String(h.id || `marker-${idx + 1}`),
         index: idx + 1,
         timestampSec: clampedSec,
@@ -71,6 +71,7 @@ export function calculateTimelineMarkers(
         keyPoint: h.keyPoint,
         percentage,
       };
+      return marker;
     })
     .filter((m): m is TimelineMarker => m !== null);
 

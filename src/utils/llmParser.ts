@@ -148,6 +148,10 @@ export function parseLLMSummaryOutput(
     }
   }
 
+  if (!parsed) {
+    throw new Error('LLM response could not be parsed as valid JSON.');
+  }
+
   if ((parsed as any)?.error && typeof (parsed as any).error === 'string') {
     throw new Error((parsed as any).error);
   }

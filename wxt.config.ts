@@ -34,12 +34,12 @@ export default defineConfig({
   srcDir: 'src',
   modules: ['@wxt-dev/module-react'],
   vite: () => ({
-    plugins: [react(), excludeScreenshotsPlugin()],
+    plugins: [react(), excludeScreenshotsPlugin()] as any,
   }),
   manifest: {
     name: 'BiliFlow',
     description: '极速心流 · B站视频总结与键盘导航 AI 助手',
-    version: '2.0.10',
+    version: '2.0.11',
     browser_specific_settings: {
       gecko: {
         id: 'biliflow@luckjokerwang',
@@ -47,7 +47,7 @@ export default defineConfig({
         data_collection_permissions: {
           required: ['none'],
         },
-      },
+      } as any,
     },
     icons: {
       '16': 'icons/icon-16.png',

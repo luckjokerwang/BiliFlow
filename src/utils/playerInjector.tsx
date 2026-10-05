@@ -17,11 +17,12 @@ let cardRoot: ReactDOM.Root | null = null;
 let cardHostEl: HTMLElement | null = null;
 
 function injectCssLink(shadow: ShadowRoot): void {
+  const chromeObj = (globalThis as any).chrome;
   const cssUrl =
     typeof browser !== 'undefined' && browser.runtime?.getURL
-      ? browser.runtime.getURL('content-scripts/content.css')
-      : typeof chrome !== 'undefined' && chrome.runtime?.getURL
-      ? chrome.runtime.getURL('content-scripts/content.css')
+      ? (browser.runtime.getURL as (path: string) => string)('/content-scripts/content.css')
+      : typeof chromeObj !== 'undefined' && chromeObj.runtime?.getURL
+      ? chromeObj.runtime.getURL('/content-scripts/content.css')
       : '';
   if (cssUrl) {
     const linkEl = document.createElement('link');

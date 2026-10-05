@@ -209,7 +209,7 @@ export default defineBackground(() => {
           if (browser.runtime?.openOptionsPage) {
             browser.runtime.openOptionsPage();
           } else {
-            browser.tabs.create({ url: browser.runtime.getURL('options.html') });
+            browser.tabs.create({ url: browser.runtime.getURL('/options.html') });
           }
           return { success: true, data: null };
         }
@@ -227,17 +227,16 @@ export default defineBackground(() => {
   // Handle messages from content script & options/popup
   browser.runtime.onMessage.addListener(
     (
-      message: ExtensionMessage,
+      message: any,
       _sender,
-      sendResponse: (response: ExtensionResponse) => void
-    ) => {
-      const p = handleMessage(message);
-      p.then((res) => {
+      sendResponse: (response: any) => void
+    ): true => {
+      handleMessage(message as ExtensionMessage).then((res) => {
         try {
           if (typeof sendResponse === 'function') sendResponse(res);
         } catch (_) {}
       });
-      return p;
+      return true;
     }
   );
 });

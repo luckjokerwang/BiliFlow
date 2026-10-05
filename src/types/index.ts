@@ -41,11 +41,11 @@ export interface OriginalQuote {
 
 export interface HighlightItem {
   id: number | string;
-  timestamp: number;     // In seconds
+  timestamp?: number;    // In seconds
   timestampSec?: number; // In seconds (alias for defensive compatibility)
   timestampStr: string;  // "mm:ss"
   title: string;         // Short headline (< 20 chars)
-  keyPoint: string;      // 1-2 sentence core insight
+  keyPoint?: string;     // 1-2 sentence core insight
   originalQuotes?: OriginalQuote[]; // 3-5 original transcript quotes around this highlight
 }
 

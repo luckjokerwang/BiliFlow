@@ -39,7 +39,7 @@ async function safeSendMessage<T = any>(
   }
   try {
     const res = await browser.runtime.sendMessage(msg);
-    return res;
+    return res as ExtensionResponse<T>;
   } catch (err: any) {
     const errMsg = err?.message || String(err);
     if (

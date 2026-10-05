@@ -16,11 +16,13 @@ import { ModelPickerModal } from './components/ModelPickerModal';
 type TabType = 'providers' | 'features' | 'shortcuts' | 'backup';
 
 interface TestResultMap {
-  [providerId: string]: {
-    success: boolean;
-    latencyMs: number;
-    error?: string;
-  };
+  [providerId: string]:
+    | {
+        success: boolean;
+        latencyMs: number;
+        error?: string;
+      }
+    | undefined;
 }
 
 // Request host permissions if not already granted (especially for Firefox / Gecko MV3 & strict mode)

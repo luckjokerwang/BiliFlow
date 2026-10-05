@@ -77,8 +77,12 @@ export const HighlightList: React.FC<HighlightListProps> = ({
               onDeleteAnnotation={() => {
                 if (annotation) onDeleteAnnotation?.(annotation.id);
               }}
-              onInsertToNativeNote={(withScreenshot) =>
-                onInsertToNativeNote?.(item, withScreenshot)
+              onInsertToNativeNote={
+                onInsertToNativeNote
+                  ? async (withScreenshot) => {
+                      return await onInsertToNativeNote(item, withScreenshot);
+                    }
+                  : undefined
               }
               cardRef={(el) => {
                 itemRefs.current[idx] = el;
