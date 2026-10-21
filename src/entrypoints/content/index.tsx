@@ -8,7 +8,7 @@ import { getPlayerContainer } from '../../utils/playerController';
 import { setupNativeNoteTimestampClickListener } from '../../utils/biliNoteDomController';
 
 export default defineContentScript({
-  matches: ['*://*.bilibili.com/video/*'],
+  matches: ['*://*.bilibili.com/video/*', '*://*.bilibili.com/list/*'],
   cssInjectionMode: 'ui',
 
   async main(ctx) {

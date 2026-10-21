@@ -201,6 +201,16 @@ describe('playerController', () => {
       expect(meta?.title).toBe('P2 核心算法剖析');
     });
 
+    it('extracts bvid from query parameter on playlist / watchlater pages', () => {
+      mockLocation.pathname = '/list/watchlater';
+      mockLocation.search = '?bvid=BV1rHh16CEfm&oid=12345';
+
+      const meta = extractVideoMeta();
+      expect(meta).not.toBeNull();
+      expect(meta?.bvid).toBe('BV1rHh16CEfm');
+      expect(meta?.pIndex).toBe(1);
+    });
+
     it('returns null if current page is not a Bilibili video page', () => {
       mockLocation.pathname = '/';
 

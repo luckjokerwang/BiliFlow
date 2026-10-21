@@ -46,21 +46,22 @@ async function requestHostPermissions(): Promise<boolean> {
   }
 }
 
-// Ensure clean slate: if a provider has never fetched remote models, its models pool must be empty
+// Ensure default recommended models are populated for providers that have not custom-selected models
 function migrateCleanSlate(settings: UserSettings): UserSettings {
   let modified = false;
   const cleanedProviders = (settings.providers || []).map((p) => {
-    if (!p.remoteModels || p.remoteModels.length === 0) {
-      if ((p.models && p.models.length > 0) || p.selectedModel || p.fallbackModel) {
-        modified = true;
-        return {
-          ...p,
-          models: [],
-          remoteModels: [],
-          selectedModel: '',
-          fallbackModel: '',
-        };
-      }
+    const defaultPreset = DEFAULT_PROVIDERS.find((dp) => dp.id === p.id);
+    if (!defaultPreset) return p;
+
+    if ((!p.models || p.models.length === 0) && defaultPreset.models.length > 0) {
+      modified = true;
+      return {
+        ...p,
+        models: defaultPreset.models,
+        remoteModels: defaultPreset.remoteModels,
+        selectedModel: p.selectedModel || defaultPreset.selectedModel,
+        fallbackModel: p.fallbackModel || defaultPreset.fallbackModel,
+      };
     }
     return p;
   });

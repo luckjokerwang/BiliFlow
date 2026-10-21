@@ -212,16 +212,23 @@ export function extractVideoMeta(): {
   title: string;
   pIndex: number;
 } | null {
-  // 1. Extract BV from URL
+  // 1. Extract BV from URL pathname or query parameters (e.g. /list/watchlater?bvid=BV...)
+  const urlParams = new URLSearchParams(window.location.search);
   const match = window.location.pathname.match(/\/video\/(BV[a-zA-Z0-9]+)/);
-  const bvid = match ? match[1] : '';
+  let bvid = match ? match[1] : '';
+
+  if (!bvid) {
+    const queryBvid = urlParams.get('bvid');
+    if (queryBvid && /^BV[a-zA-Z0-9]+$/.test(queryBvid)) {
+      bvid = queryBvid;
+    }
+  }
 
   if (!bvid) {
     return null;
   }
 
   // 2. Extract p parameter for multi-P / playlist videos
-  const urlParams = new URLSearchParams(window.location.search);
   const rawUrlP = urlParams.get('p');
   const domPlaylist = extractActivePlaylistPIndex();
 

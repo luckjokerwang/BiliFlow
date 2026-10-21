@@ -35,24 +35,24 @@ export default defineBackground(() => {
       if (!old.providers || !Array.isArray(old.providers)) {
         await browser.storage.local.set({ user_settings: DEFAULT_SETTINGS });
       } else {
-        // Clean legacy hardcoded models from preset providers if never fetched
+        // Populate default recommended models from preset providers if missing
         let needsUpdate = false;
         const cleanedProviders = old.providers.map((p) => {
-          if (!p.remoteModels || p.remoteModels.length === 0) {
-            if ((p.models && p.models.length > 0) || p.selectedModel || p.fallbackModel) {
-              needsUpdate = true;
-              return {
-                ...p,
-                models: [],
-                remoteModels: [],
-                selectedModel: '',
-                fallbackModel: '',
-              };
-            }
+          const defaultPreset = DEFAULT_PROVIDERS.find((dp) => dp.id === p.id);
+          if (!defaultPreset) return p;
+
+          if ((!p.models || p.models.length === 0) && defaultPreset.models.length > 0) {
+            needsUpdate = true;
+            return {
+              ...p,
+              models: defaultPreset.models,
+              remoteModels: defaultPreset.remoteModels,
+              selectedModel: p.selectedModel || defaultPreset.selectedModel,
+              fallbackModel: p.fallbackModel || defaultPreset.fallbackModel,
+            };
           }
           return p;
         });
-
         if (needsUpdate) {
           await browser.storage.local.set({
             user_settings: {
