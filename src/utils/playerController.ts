@@ -141,6 +141,70 @@ export function isUserTyping(e?: Event | KeyboardEvent): boolean {
   return false;
 }
 
+/**
+ * Detects active multi-P episode index from the page DOM when URL query ?p= has not updated yet.
+ */
+export function extractActivePlaylistPIndex(): { pIndex: number; title?: string } | null {
+  if (typeof document === 'undefined') return null;
+
+  // Selectors for active items in Bilibili playlist / episode containers:
+  // 1. New video-pod list: .video-pod__list .video-pod__item.active
+  // 2. Classic multi-P list: .cur-list ul li.on, .part-item.on, .list-box ul li.on
+  // 3. UGC Season / Episode card: .video-episode-card.active, .ep-item.cursor
+  const activeEl = document.querySelector<HTMLElement>(
+    '.video-pod__list .video-pod__item.active, .video-episode-card.active, .cur-list ul li.on, .part-item.on, .list-box ul li.on'
+  );
+
+  if (!activeEl) return null;
+
+  const title = activeEl.textContent ? activeEl.textContent.replace(/\d+:\d+$/, '').trim() : '';
+
+  // 1. Try extracting ?p= from any internal link inside or on the element itself
+  const anchor =
+    activeEl.tagName.toLowerCase() === 'a'
+      ? (activeEl as HTMLAnchorElement)
+      : activeEl.querySelector<HTMLAnchorElement>('a');
+
+  if (anchor && anchor.href) {
+    try {
+      const u = new URL(anchor.href, window.location.origin);
+      const p = u.searchParams.get('p');
+      if (p) {
+        const parsed = parseInt(p, 10);
+        if (!isNaN(parsed) && parsed > 0) {
+          return { pIndex: parsed, title };
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Try data attributes (e.g. data-page, data-p, data-index)
+  const dataPage =
+    activeEl.getAttribute('data-page') ||
+    activeEl.getAttribute('data-p') ||
+    activeEl.getAttribute('data-index');
+
+  if (dataPage) {
+    const parsed = parseInt(dataPage, 10);
+    if (!isNaN(parsed) && parsed > 0) {
+      return { pIndex: parsed, title };
+    }
+  }
+
+  // 3. Fallback: calculate 1-based index based on its position among sibling items
+  if (activeEl.parentElement) {
+    const siblings = Array.from(activeEl.parentElement.children).filter((child) =>
+      child.matches?.('.video-pod__item, li, .video-episode-card, .part-item')
+    );
+    const idx = siblings.indexOf(activeEl);
+    if (idx !== -1) {
+      return { pIndex: idx + 1, title };
+    }
+  }
+
+  return null;
+}
+
 export function extractVideoMeta(): {
   bvid: string;
   cid: string;
@@ -158,17 +222,31 @@ export function extractVideoMeta(): {
 
   // 2. Extract p parameter for multi-P / playlist videos
   const urlParams = new URLSearchParams(window.location.search);
-  const pIndex = parseInt(urlParams.get('p') || '1', 10);
+  const rawUrlP = urlParams.get('p');
+  const domPlaylist = extractActivePlaylistPIndex();
 
-  // 3. Extract title directly from page DOM or active playlist item
-  let title = '';
-  const activePlaylistItem = document.querySelector(
-    '.video-pod__list .video-pod__item.active, .video-episode-card.active, .cur-list ul li.on, .part-item.on'
-  );
-  if (activePlaylistItem && activePlaylistItem.textContent) {
-    title = activePlaylistItem.textContent.replace(/\d+:\d+$/, '').trim();
+  let pIndex = 1;
+  if (rawUrlP) {
+    const parsedP = parseInt(rawUrlP, 10);
+    if (!isNaN(parsedP) && parsedP > 0) {
+      pIndex = parsedP;
+    }
+  } else if (domPlaylist && domPlaylist.pIndex > 0) {
+    // Fallback to DOM playlist index when URL ?p= parameter has not synchronized
+    pIndex = domPlaylist.pIndex;
   }
 
+  // 3. Extract title directly from page DOM or active playlist item
+  let title = domPlaylist?.title || '';
+
+  if (!title) {
+    const activePlaylistItem = document.querySelector(
+      '.video-pod__list .video-pod__item.active, .video-episode-card.active, .cur-list ul li.on, .part-item.on, .list-box ul li.on'
+    );
+    if (activePlaylistItem && activePlaylistItem.textContent) {
+      title = activePlaylistItem.textContent.replace(/\d+:\d+$/, '').trim();
+    }
+  }
   if (!title) {
     const titleEl = document.querySelector('h1.video-title, .video-info-title-inner, .video-title .tit');
     if (titleEl && titleEl.textContent) {

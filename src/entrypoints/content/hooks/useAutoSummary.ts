@@ -8,7 +8,11 @@ import {
   BiliRawSubtitleItem,
 } from '../../../types';
 import { UserSettings } from '../../../types/settings';
-import { extractVideoMeta, getVideoDuration } from '../../../utils/playerController';
+import {
+  extractVideoMeta,
+  getVideoDuration,
+  getVideoElement,
+} from '../../../utils/playerController';
 import { cleanupPlayerInjections } from '../../../utils/playerInjector';
 import { onSpaNavigate } from '../../../utils/spaNavigation';
 import { isCachedSummaryValid } from '../../../services/summaryCacheService';
@@ -244,9 +248,18 @@ export function useAutoSummary({
     [settings.autoSummarize, settings.minDurationForAutoSec, onToast]
   );
 
-  // Monitor SPA URL / Video changes with 0ms reactive detection and instant state cleanup
+  // Monitor SPA URL / Video changes with 0ms reactive detection, DOM playlist observer & video stream sync
   useEffect(() => {
-    const handleVideoChange = () => {
+    let lastObservedKey = '';
+
+    const handleVideoChange = (force = false) => {
+      const meta = extractVideoMeta();
+      const newKey = meta ? `${meta.bvid}_p${meta.pIndex}` : '';
+      if (!force && newKey && newKey === lastObservedKey) {
+        return;
+      }
+      lastObservedKey = newKey;
+
       // 1. Immediately abort any in-flight task from previous video
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
@@ -270,15 +283,74 @@ export function useAutoSummary({
     };
 
     // Initial load
-    loadSummaryForCurrentVideo(false, false);
+    handleVideoChange(true);
 
-    // Subscribe to SPA 0ms navigation events + popstate + fallback polling
-    const unsubscribe = onSpaNavigate(() => {
-      handleVideoChange();
+    // 1. Subscribe to SPA 0ms navigation events + popstate + fallback polling
+    const unsubscribeSpa = onSpaNavigate(() => {
+      handleVideoChange(false);
     });
 
+    // 2. Observe DOM Playlist mutations (detects when Bilibili marks a new episode .active / .on)
+    let playlistObserver: MutationObserver | null = null;
+    if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
+      playlistObserver = new MutationObserver(() => {
+        const meta = extractVideoMeta();
+        const currentKey = meta ? `${meta.bvid}_p${meta.pIndex}` : '';
+        if (currentKey && currentKey !== lastObservedKey) {
+          handleVideoChange(false);
+        }
+      });
+
+      const playlistTarget =
+        document.querySelector('.video-pod__list') ||
+        document.querySelector('.cur-list') ||
+        document.querySelector('.multi-page') ||
+        document.body;
+
+      if (playlistTarget) {
+        playlistObserver.observe(playlistTarget, {
+          subtree: true,
+          childList: true,
+          attributes: true,
+          attributeFilter: ['class'],
+        });
+      }
+    }
+
+    // 3. Listen to video stream change events (handles auto-advance when Bilibili switches media internally)
+    let currentAttachedVideo: HTMLVideoElement | null = null;
+    const handleVideoLoaded = () => {
+      const meta = extractVideoMeta();
+      const currentKey = meta ? `${meta.bvid}_p${meta.pIndex}` : '';
+      if (currentKey && currentKey !== lastObservedKey) {
+        handleVideoChange(false);
+      }
+    };
+
+    const attachVideoListeners = () => {
+      const video = getVideoElement();
+      if (video && video !== currentAttachedVideo) {
+        if (currentAttachedVideo) {
+          currentAttachedVideo.removeEventListener('loadeddata', handleVideoLoaded);
+          currentAttachedVideo.removeEventListener('emptied', handleVideoLoaded);
+        }
+        video.addEventListener('loadeddata', handleVideoLoaded);
+        video.addEventListener('emptied', handleVideoLoaded);
+        currentAttachedVideo = video;
+      }
+    };
+
+    attachVideoListeners();
+    const videoAttachTimer = setInterval(attachVideoListeners, 2000);
+
     return () => {
-      unsubscribe();
+      unsubscribeSpa();
+      playlistObserver?.disconnect();
+      if (currentAttachedVideo) {
+        currentAttachedVideo.removeEventListener('loadeddata', handleVideoLoaded);
+        currentAttachedVideo.removeEventListener('emptied', handleVideoLoaded);
+      }
+      clearInterval(videoAttachTimer);
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }

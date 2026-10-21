@@ -26,10 +26,6 @@ export default defineBackground(() => {
 
   // Initialize or migrate user settings on install/update
   browser.runtime.onInstalled.addListener(async () => {
-    // Purge any known corrupted or poisoned cache entries on update
-    try {
-      await deleteCachedSummary('BV1rHh16CEfm', '42183360876');
-    } catch (_) {}
 
     const data = await browser.storage.local.get('user_settings');
     if (!data.user_settings) {
