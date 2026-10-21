@@ -30,8 +30,9 @@ const SYSTEM_PROMPT = `
 要求：
 1. highlights 数量控制在 3 到 6 个最核心的节点。
 2. timestamp 必须严格对应字幕里出现的起始时间戳（格式 mm:ss 或 hh:mm:ss）。
-3. 语言保持客观、干练、直击要害。
-4. 提炼内容必须紧密围绕【视频标题】与实际字幕内容展开；若提供的字幕与视频标题完全不匹配（如数据源错位），请在 JSON 中返回 {"error": "字幕内容与视频标题不匹配，可能存在数据源错位"}。
+3. 核心节点必须按时间线均匀覆盖视频的全片脉络（包含起承转合、核心论点推进与结尾结论），严禁全部拥挤在开篇前几分钟。
+4. 语言保持客观、干练、直击要害。
+5. 提炼内容必须紧密围绕【视频标题】与实际字幕内容展开；若提供的字幕与视频标题完全不匹配（如数据源错位），请在 JSON 中返回 {"error": "字幕内容与视频标题不匹配，可能存在数据源错位"}。
 `.trim();
 
 export function formatBaseUrl(rawUrl: string, path: string): string {
@@ -199,7 +200,7 @@ async function executeSingleChatCompletion(params: {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000);
+      const timeoutId = setTimeout(() => controller.abort(), 45000);
 
       const response = await fetch(endpoint, {
         method: 'POST',

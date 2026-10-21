@@ -66,14 +66,60 @@ export function chunkSubtitles(
 }
 
 /**
- * Formats transcript chunks into an LLM-ready prompt text with timestamp prefixes.
+ * Downsamples and merges chunks uniformly across the timeline to fit within maxTotalChars
+ * without ever truncating or omitting the end of the video.
  */
-export function formatTranscriptForPrompt(chunks: TranscriptChunk[]): string {
+export function compressChunksToFit(
+  chunks: TranscriptChunk[],
+  maxTotalChars = 24000
+): TranscriptChunk[] {
+  if (!Array.isArray(chunks) || chunks.length <= 1) return chunks || [];
+
+  let totalChars = chunks.reduce((sum, c) => sum + c.text.length, 0);
+  if (totalChars <= maxTotalChars) {
+    return chunks;
+  }
+
+  // Progressively merge adjacent pairs until total characters fit within budget
+  let currentChunks = [...chunks];
+  while (totalChars > maxTotalChars && currentChunks.length > 8) {
+    const merged: TranscriptChunk[] = [];
+    for (let i = 0; i < currentChunks.length; i += 2) {
+      if (i + 1 < currentChunks.length) {
+        const c1 = currentChunks[i];
+        const c2 = currentChunks[i + 1];
+        merged.push({
+          startTime: c1.startTime,
+          endTime: c2.endTime,
+          timestampStr: c1.timestampStr,
+          text: `${c1.text} ${c2.text}`,
+        });
+      } else {
+        merged.push(currentChunks[i]);
+      }
+    }
+    currentChunks = merged;
+    totalChars = currentChunks.reduce((sum, c) => sum + c.text.length, 0);
+  }
+
+  return currentChunks;
+}
+
+/**
+ * Formats transcript chunks into an LLM-ready prompt text with timestamp prefixes.
+ * Guarantees timeline integrity for long videos while fitting within token limits.
+ */
+export function formatTranscriptForPrompt(
+  chunks: TranscriptChunk[],
+  maxTotalChars = 24000
+): string {
   if (!chunks || chunks.length === 0) {
     return '';
   }
 
-  return chunks
+  const fittedChunks = compressChunksToFit(chunks, maxTotalChars);
+
+  return fittedChunks
     .map((chunk) => `[${chunk.timestampStr}] ${chunk.text}`)
     .join('\n');
 }

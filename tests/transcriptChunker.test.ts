@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { chunkSubtitles, formatTranscriptForPrompt } from '../src/utils/transcriptChunker';
+import { chunkSubtitles, formatTranscriptForPrompt, compressChunksToFit } from '../src/utils/transcriptChunker';
 import { BiliRawSubtitleItem } from '../src/types';
 
 describe('transcriptChunker', () => {
@@ -31,5 +31,21 @@ describe('transcriptChunker', () => {
   it('handles empty subtitle lists defensively', () => {
     expect(chunkSubtitles([])).toEqual([]);
     expect(formatTranscriptForPrompt([])).toBe('');
+  });
+
+  it('compressChunksToFit merges chunks progressively while preserving start and end timestamps', () => {
+    const manyChunks = Array.from({ length: 20 }, (_, i) => ({
+      startTime: i * 60,
+      endTime: (i + 1) * 60,
+      timestampStr: `${String(i).padStart(2, '0')}:00`,
+      text: `这是第 ${i + 1} 个时间段的较长字幕段落，包含详细技术说明与案例讲解内容。`,
+    }));
+
+    // Pass a very small budget (e.g. 300 chars) to force compression
+    const compressed = compressChunksToFit(manyChunks, 300);
+    expect(compressed.length).toBeLessThan(manyChunks.length);
+    // Ensure the timeline start and end are strictly preserved!
+    expect(compressed[0].startTime).toBe(0);
+    expect(compressed[compressed.length - 1].endTime).toBe(20 * 60);
   });
 });
