@@ -25,27 +25,37 @@ export function getSubtitlePriorityScore(s: {
     lanDoc.includes('AI') ||
     lanDoc.includes('翻译');
 
-  // 1. UP-authored manual Chinese subtitle
+  const isTranslated =
+    s.ai_type === 2 ||
+    lanDoc.includes('翻译') ||
+    lanDoc.includes('译');
+
+  // 1. UP-authored manual Chinese subtitle (zh-CN, zh-Hans, zh-TW, non-AI)
   if (!isAi && (lan.includes('zh') || lanDoc.includes('中'))) {
     return 100;
   }
 
-  // 2. AI-generated Chinese subtitle (original ASR audio transcription)
+  // 2. AI-generated Chinese subtitle (original ASR audio transcription, non-translated)
   if (
-    lan === 'ai-zh' ||
-    ((lan.includes('zh') || lanDoc.includes('中')) && (lanDoc.includes('自动') || isAi))
+    (lan === 'ai-zh' || ((lan.includes('zh') || lanDoc.includes('中')) && isAi)) &&
+    !isTranslated
   ) {
     return 80;
   }
 
-  // 3. Other manual non-AI subtitles
-  if (!isAi) {
-    return 60;
+  // 3. AI-translated Chinese subtitle (translated from foreign audio)
+  if ((lan.includes('zh') || lanDoc.includes('中')) && isTranslated) {
+    return 70;
   }
 
-  // 4. Other AI translated tracks (ai-en, ai-ja, etc.)
+  // 4. Other manual original non-AI subtitles
+  if (!isAi) {
+    return 50;
+  }
+
+  // 5. Other AI translated tracks (ai-en, ai-ja, etc.)
   if (isAi) {
-    return 40;
+    return 30;
   }
 
   return 10;
@@ -156,4 +166,42 @@ export function extractQuotesForHighlight(
     timestampStr: formatSeconds(item.from),
     content: item.content.trim(),
   }));
+}
+
+/**
+ * Snaps an estimated or LLM-generated timestamp to the nearest coherent spoken subtitle utterance.
+ * Prevents timestamp drift (e.g. LLM guessing "01:00" when speech begins at "01:04").
+ * Tolerance: default within 12 seconds.
+ */
+export function snapTimestampToUtterance(
+  targetSec: number,
+  subtitles: BiliRawSubtitleItem[],
+  maxToleranceSec = 12
+): number {
+  if (!Array.isArray(subtitles) || subtitles.length === 0 || targetSec < 0) {
+    return targetSec;
+  }
+
+  // 1. If an exact utterance covers targetSec (targetSec is between s.from and s.to),
+  // snap to s.from directly!
+  const enclosing = subtitles.find(
+    (s) => targetSec >= s.from && targetSec <= s.to
+  );
+  if (enclosing) {
+    return Math.floor(enclosing.from);
+  }
+
+  // 2. Find closest utterance start within tolerance
+  let closestDist = Infinity;
+  let closestSec = targetSec;
+
+  for (const s of subtitles) {
+    const dist = Math.abs(s.from - targetSec);
+    if (dist <= maxToleranceSec && dist < closestDist) {
+      closestDist = dist;
+      closestSec = Math.floor(s.from);
+    }
+  }
+
+  return closestSec;
 }

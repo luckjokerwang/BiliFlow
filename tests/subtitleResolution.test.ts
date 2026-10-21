@@ -5,6 +5,7 @@ import {
   selectPreferredSubtitleTrack,
   fuseSubtitles,
   extractQuotesForHighlight,
+  snapTimestampToUtterance,
 } from '../src/utils/subtitleUtils';
 
 describe('Subtitle Waterfall & Utilities', () => {
@@ -18,7 +19,7 @@ describe('Subtitle Waterfall & Utilities', () => {
 
       expect(getSubtitlePriorityScore(tracks[2])).toBe(100);
       expect(getSubtitlePriorityScore(tracks[1])).toBe(80);
-      expect(getSubtitlePriorityScore(tracks[0])).toBe(40);
+      expect(getSubtitlePriorityScore(tracks[0])).toBe(30);
 
       const best = selectPreferredSubtitleTrack(tracks);
       expect(best.lan).toBe('zh-CN');
@@ -35,6 +36,19 @@ describe('Subtitle Waterfall & Utilities', () => {
       const best = selectPreferredSubtitleTrack(tracks);
       expect(best.lan).toBe('ai-zh');
       expect(best.subtitle_url).toBe('http://ai-zh.json');
+    });
+
+    it('prioritizes native Chinese ASR subtitles (score 80) over translated Chinese subtitles (score 70)', () => {
+      const tracks = [
+        { lan: 'ai-zh', lan_doc: '中文（自动翻译）', type: 1, ai_type: 2, subtitle_url: 'http://trans-zh.json' },
+        { lan: 'ai-zh', lan_doc: '中文（自动生成）', type: 1, ai_type: 1, subtitle_url: 'http://asr-zh.json' },
+      ];
+
+      expect(getSubtitlePriorityScore(tracks[1])).toBe(80);
+      expect(getSubtitlePriorityScore(tracks[0])).toBe(70);
+
+      const best = selectPreferredSubtitleTrack(tracks);
+      expect(best.subtitle_url).toBe('http://asr-zh.json');
     });
   });
 
@@ -148,6 +162,35 @@ describe('Subtitle Waterfall & Utilities', () => {
       expect(subtitles[0].content).toContain('日元对美元汇率持续下行这是近40年来的历史性低位');
       expect(subtitles[0].from).toBe(0.5);
       expect(subtitles[0].to).toBe(7.1);
+    });
+  });
+
+
+  describe('snapTimestampToUtterance', () => {
+    const sampleSubs = [
+      { from: 10.4, to: 15.2, content: '第一句话从十秒开始' },
+      { from: 42.1, to: 48.0, content: '第二句话讨论核心算法' },
+      { from: 85.0, to: 92.5, content: '第三句话探讨架构演进' },
+    ];
+
+    it('snaps to the starting second when target falls inside an utterance', () => {
+      // Target is 44s, falls inside 42.1 ~ 48.0
+      expect(snapTimestampToUtterance(44, sampleSubs)).toBe(42);
+    });
+
+    it('snaps to the nearest utterance start within tolerance', () => {
+      // Target is 40s (LLM guessed a round 00:40, utterance is at 42.1s)
+      expect(snapTimestampToUtterance(40, sampleSubs)).toBe(42);
+    });
+
+    it('preserves targetSec if no utterance is within tolerance threshold', () => {
+      // Target is 150s, nearest is 85s (diff 65s > 12s tolerance)
+      expect(snapTimestampToUtterance(150, sampleSubs)).toBe(150);
+    });
+
+    it('safely handles empty subtitles or negative target seconds', () => {
+      expect(snapTimestampToUtterance(30, [])).toBe(30);
+      expect(snapTimestampToUtterance(-5, sampleSubs)).toBe(-5);
     });
   });
 });

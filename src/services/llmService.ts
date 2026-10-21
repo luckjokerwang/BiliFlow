@@ -5,7 +5,8 @@ import {
 } from '../types';
 import { chunkSubtitles, formatTranscriptForPrompt } from '../utils/transcriptChunker';
 import { parseLLMSummaryOutput } from '../utils/llmParser';
-import { extractQuotesForHighlight } from '../utils/subtitleUtils';
+import { extractQuotesForHighlight, snapTimestampToUtterance } from '../utils/subtitleUtils';
+import { formatSeconds } from '../utils/timeParser';
 
 const SYSTEM_PROMPT = `
 你是一个专业的 B 站视频核心内容提炼专家。
@@ -362,10 +363,17 @@ ${formattedTranscript}
     });
 
     const parsed = parseLLMSummaryOutput(rawContent, { bvid, cid, title });
-    const highlightsWithQuotes = parsed.highlights.map((item) => ({
-      ...item,
-      originalQuotes: extractQuotesForHighlight(item.timestamp ?? item.timestampSec ?? 0, subtitles),
-    }));
+    const highlightsWithQuotes = parsed.highlights.map((item) => {
+      const rawSec = item.timestamp ?? item.timestampSec ?? 0;
+      const snappedSec = snapTimestampToUtterance(rawSec, subtitles);
+      return {
+        ...item,
+        timestamp: snappedSec,
+        timestampSec: snappedSec,
+        timestampStr: formatSeconds(snappedSec),
+        originalQuotes: extractQuotesForHighlight(snappedSec, subtitles),
+      };
+    });
 
     return {
       ...parsed,
@@ -390,10 +398,17 @@ ${formattedTranscript}
         });
 
         const parsed = parseLLMSummaryOutput(fallbackContent, { bvid, cid, title });
-        const highlightsWithQuotes = parsed.highlights.map((item) => ({
-          ...item,
-          originalQuotes: extractQuotesForHighlight(item.timestamp ?? item.timestampSec ?? 0, subtitles),
-        }));
+        const highlightsWithQuotes = parsed.highlights.map((item) => {
+          const rawSec = item.timestamp ?? item.timestampSec ?? 0;
+          const snappedSec = snapTimestampToUtterance(rawSec, subtitles);
+          return {
+            ...item,
+            timestamp: snappedSec,
+            timestampSec: snappedSec,
+            timestampStr: formatSeconds(snappedSec),
+            originalQuotes: extractQuotesForHighlight(snappedSec, subtitles),
+          };
+        });
 
         return {
           ...parsed,
