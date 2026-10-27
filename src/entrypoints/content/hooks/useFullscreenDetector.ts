@@ -18,7 +18,7 @@ export interface UseFullscreenDetectorReturn {
   isFullscreen: boolean;
 }
 
-function matchesShortcut(e: KeyboardEvent, shortcutStr?: string): boolean {
+export function matchesShortcut(e: KeyboardEvent, shortcutStr?: string): boolean {
   if (!shortcutStr) return false;
 
   const parts = shortcutStr.split('+').map((p) => p.trim().toLowerCase());
@@ -116,6 +116,12 @@ export function useFullscreenDetector({
         e.preventDefault();
         e.stopPropagation();
         onClose();
+        return;
+      }
+
+      // Navigation shortcuts inside HUD only take effect when HUD is open
+      // Strictly prevents intercepting native B站 player shortcuts (e.g. K for pause, J for rewind)
+      if (!isOpen) {
         return;
       }
 
