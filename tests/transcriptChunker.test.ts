@@ -47,5 +47,9 @@ describe('transcriptChunker', () => {
     // Ensure the timeline start and end are strictly preserved!
     expect(compressed[0].startTime).toBe(0);
     expect(compressed[compressed.length - 1].endTime).toBe(20 * 60);
+
+    // Ensure total character count is strictly bounded by maxTotalChars
+    const totalChars = compressed.reduce((sum, c) => sum + c.text.length, 0);
+    expect(totalChars).toBeLessThanOrEqual(300);
   });
 });

@@ -73,36 +73,58 @@ export function compressChunksToFit(
   chunks: TranscriptChunk[],
   maxTotalChars = 24000
 ): TranscriptChunk[] {
-  if (!Array.isArray(chunks) || chunks.length <= 1) return chunks || [];
+  if (!Array.isArray(chunks) || chunks.length === 0) return [];
+  if (chunks.length === 1) {
+    const single = chunks[0];
+    if (single.text.length <= maxTotalChars) return [single];
+    return [
+      {
+        ...single,
+        text: single.text.slice(0, maxTotalChars),
+      },
+    ];
+  }
 
-  let totalChars = chunks.reduce((sum, c) => sum + c.text.length, 0);
+  const totalChars = chunks.reduce((sum, c) => sum + c.text.length, 0);
   if (totalChars <= maxTotalChars) {
     return chunks;
   }
 
-  // Progressively merge adjacent pairs until total characters fit within budget
-  let currentChunks = [...chunks];
-  while (totalChars > maxTotalChars && currentChunks.length > 8) {
-    const merged: TranscriptChunk[] = [];
-    for (let i = 0; i < currentChunks.length; i += 2) {
-      if (i + 1 < currentChunks.length) {
-        const c1 = currentChunks[i];
-        const c2 = currentChunks[i + 1];
-        merged.push({
-          startTime: c1.startTime,
-          endTime: c2.endTime,
-          timestampStr: c1.timestampStr,
-          text: `${c1.text} ${c2.text}`,
-        });
-      } else {
-        merged.push(currentChunks[i]);
-      }
+  // Determine target chunk count K spanning timeline start to end
+  const targetK = Math.min(
+    chunks.length - 1,
+    Math.max(4, Math.min(30, Math.floor(maxTotalChars / 60)))
+  );
+  const K = Math.max(1, targetK);
+  const budgetPerChunk = Math.floor(maxTotalChars / K);
+
+  const result: TranscriptChunk[] = [];
+  const N = chunks.length;
+
+  for (let i = 0; i < K; i++) {
+    const startIdx = Math.floor((i * N) / K);
+    const endIdx = Math.min(N - 1, Math.floor(((i + 1) * N) / K) - 1);
+    const slice = chunks.slice(startIdx, Math.max(startIdx + 1, endIdx + 1));
+
+    if (slice.length === 0) continue;
+
+    const first = slice[0];
+    const last = slice[slice.length - 1];
+
+    let combinedText = slice.map((c) => c.text).join(' ');
+    if (combinedText.length > budgetPerChunk) {
+      combinedText = combinedText.slice(0, budgetPerChunk);
     }
-    currentChunks = merged;
-    totalChars = currentChunks.reduce((sum, c) => sum + c.text.length, 0);
+
+    result.push({
+      startTime: first.startTime,
+      endTime: last.endTime,
+      timestampStr: first.timestampStr,
+      text: combinedText,
+    });
   }
 
-  return currentChunks;
+  return result;
 }
 
 /**
