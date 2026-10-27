@@ -53,6 +53,13 @@ BiliFlow 采用革命性的 HUD (Heads-Up Display) 半透明悬浮设计 与 纯
 • 支持智能容灾故障转移：主用模型遭遇限流或超时时，自动无感切换至备用模型；
 • 100% 隐私安全承诺：所有 API Key 与个人配置均仅存储在浏览器的本地沙盒中，零第三方中间服务端中转！
 
+🎬 6. 全场景适配与 0ms 实时响应
+• 全站覆盖：除普通视频外，深度支持番剧/纪录片/国创/电视剧（bangumi/play）与媒体列表（medialist/play）；
+• 0ms SPA 路由桥接：底层主世界桥接技术，切集换片毫秒级响应；
+• 极致非侵入：HUD 关闭状态下，J/K/O 及数字键完全让渡给 B 站原生播放器（如 K 键暂停），绝不抢占原生按键。
+
+⚡ 7. 超长视频智能下采样
+• 针对 1~3 小时超长视频，重写字幕时间轴聚类算法，严格控制 Prompt 在设定 Token 预算内，全片脉络不丢失。
 ---
 
 💡 快速上手指南：
@@ -113,6 +120,13 @@ BiliFlow features a sleek HUD (Heads-Up Display) and a pure keyboard workflow (K
 • Built-in official support for DeepSeek, Google Gemini, SiliconFlow, OpenAI, SenseNova, Moonshot AI, Zhipu GLM, local Ollama, and OpenRouter;
 • Intelligent Failover: Automatically falls back to your secondary backup model if your primary provider encounters rate limits;
 • 100% Privacy First: Your API keys and configurations remain strictly inside your browser's local sandbox with zero third-party proxy tracking.
+🎬 6. Full Scene Coverage & 0ms Responsive Routing
+• Seamless support for regular videos, collections, multi-part series, Bangumi/Anime (bangumi/play), and media lists;
+• Main World Bridge enables true 0ms SPA route interception when switching episodes;
+• Non-intrusive shortcut isolation: When HUD is closed, J/K/O hotkeys are fully ceded to native Bilibili player controls.
+
+⚡ 7. Long Video Intelligent Downsampling
+• For 1-3 hour long videos, uniform downsampling algorithms enforce strict prompt token budgets without losing timeline integrity.
 ```
 
 ---
