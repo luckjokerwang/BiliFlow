@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
   hasVideoUrlChanged,
   onSpaNavigate,
+  injectMainWorldBridge,
   _resetWatcherForTesting,
 } from '../src/utils/spaNavigation';
 import { isUserTyping } from '../src/utils/playerController';
@@ -108,6 +109,26 @@ describe('SPA Navigation - onSpaNavigate Event Handling', () => {
 
     expect(callback).toHaveBeenCalledWith('https://www.bilibili.com/video/BV1zz411c7mF?p=2');
     unsubscribe();
+  });
+  it('injects main world bridge script into document container safely', () => {
+    const appendedChildren: any[] = [];
+    const mockContainer = {
+      appendChild: vi.fn((el: any) => {
+        appendedChildren.push(el);
+      }),
+    };
+    (global as any).document = {
+      head: mockContainer,
+      createElement: vi.fn((tag: string) => ({
+        id: '',
+        textContent: '',
+        remove: vi.fn(),
+      })),
+    };
+
+    injectMainWorldBridge();
+    expect(mockContainer.appendChild).toHaveBeenCalled();
+    delete (global as any).document;
   });
 });
 

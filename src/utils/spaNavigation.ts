@@ -10,6 +10,60 @@ let isWatcherInitialized = false;
 export function _resetWatcherForTesting(): void {
   isWatcherInitialized = false;
 }
+/**
+ * Injects a minimal bridge script into the page's Main World to intercept
+ * history.pushState and history.replaceState, bridging the event to Content Script via CustomEvent.
+ */
+export function injectMainWorldBridge(): void {
+  if (typeof document === 'undefined') return;
+  try {
+    const container = document.head || document.documentElement;
+    if (!container) return;
+    const script = document.createElement('script');
+    script.id = 'biliflow-spa-bridge';
+    script.textContent = `(${function () {
+      const win = window as unknown as Record<string, unknown>;
+      if (win.__biliflow_spa_injected) return;
+      win.__biliflow_spa_injected = true;
+
+      const notify = () => {
+        try {
+          window.dispatchEvent(
+            new CustomEvent('biliflow:spa-navigate', {
+              detail: { url: window.location.href },
+            })
+          );
+        } catch {}
+      };
+
+      const origPush = history.pushState;
+      if (typeof origPush === 'function') {
+        history.pushState = function (...args) {
+          const prev = window.location.href;
+          const res = origPush.apply(this, args);
+          if (window.location.href !== prev) notify();
+          return res;
+        };
+      }
+
+      const origReplace = history.replaceState;
+      if (typeof origReplace === 'function') {
+        history.replaceState = function (...args) {
+          const prev = window.location.href;
+          const res = origReplace.apply(this, args);
+          if (window.location.href !== prev) notify();
+          return res;
+        };
+      }
+
+      window.addEventListener('popstate', notify);
+    }.toString()})();`;
+    container.appendChild(script);
+    script.remove();
+  } catch {
+    // Graceful fallback to isolated-world hooks and polling
+  }
+}
 
 export function initSpaNavigationWatcher(): void {
   if (typeof window === 'undefined' || isWatcherInitialized) {
@@ -18,6 +72,8 @@ export function initSpaNavigationWatcher(): void {
 
   isWatcherInitialized = true;
 
+  // 1. Inject Main World bridge to capture page-level pushState / replaceState (0ms response)
+  injectMainWorldBridge();
   const dispatchNavEvent = () => {
     try {
       window.dispatchEvent(
@@ -25,7 +81,7 @@ export function initSpaNavigationWatcher(): void {
           detail: { url: window.location.href },
         })
       );
-    } catch (e) {
+    } catch {
       // Ignore in environments where CustomEvent might fail
     }
   };
