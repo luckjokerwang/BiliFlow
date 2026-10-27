@@ -102,40 +102,45 @@ export function seekToSeconds(seconds: number): boolean {
   return true;
 }
 
-export function isUserTyping(e?: Event | KeyboardEvent): boolean {
-  // 1. Check document.activeElement
-  const activeEl = typeof document !== 'undefined' ? document.activeElement : null;
-  if (activeEl) {
-    const tagName = activeEl.tagName.toUpperCase();
-    if (
-      tagName === 'INPUT' ||
-      tagName === 'TEXTAREA' ||
-      activeEl.getAttribute('contenteditable') === 'true' ||
-      (activeEl as HTMLElement).isContentEditable
-    ) {
-      return true;
-    }
+function isEditableElement(el: unknown): boolean {
+  if (!el || typeof el !== 'object') return false;
+  if ('tagName' in el && typeof el.tagName === 'string') {
+    const tagName = el.tagName.toUpperCase();
+    if (tagName === 'INPUT' || tagName === 'TEXTAREA') return true;
   }
+  if ('isContentEditable' in el && Boolean(el.isContentEditable)) {
+    return true;
+  }
+  if ('getAttribute' in el && typeof el.getAttribute === 'function') {
+    const attr = el.getAttribute('contenteditable');
+    if (attr === 'true') return true;
+  }
+  return false;
+}
 
-  // 2. Check event target or composedPath for Shadow DOM inputs
-  if (e) {
-    const target = (e.target || (e.composedPath && e.composedPath()[0])) as any;
-    const isElement =
-      typeof HTMLElement !== 'undefined'
-        ? target instanceof HTMLElement
-        : Boolean(target && typeof target === 'object' && target.tagName);
-
-    if (isElement && target) {
-      const tagName = (target.tagName || '').toUpperCase();
-      if (
-        tagName === 'INPUT' ||
-        tagName === 'TEXTAREA' ||
-        (typeof target.getAttribute === 'function' && target.getAttribute('contenteditable') === 'true') ||
-        target.isContentEditable
-      ) {
+export function isUserTyping(e?: Event | KeyboardEvent): boolean {
+  // 1. Check composedPath first to penetrate Shadow DOM boundaries without getting fooled by retargeted e.target
+  if (e && typeof e.composedPath === 'function') {
+    const path = e.composedPath();
+    if (Array.isArray(path) && path.length > 0) {
+      if (isEditableElement(path[0])) {
         return true;
       }
     }
+  }
+
+  // 2. Check document.activeElement recursively traversing nested shadowRoots
+  let activeEl: Element | null = typeof document !== 'undefined' ? document.activeElement : null;
+  while (activeEl && activeEl.shadowRoot && activeEl.shadowRoot.activeElement) {
+    activeEl = activeEl.shadowRoot.activeElement;
+  }
+  if (isEditableElement(activeEl)) {
+    return true;
+  }
+
+  // 3. Fallback direct target check for non-Shadow DOM elements
+  if (e && isEditableElement(e.target)) {
+    return true;
   }
 
   return false;

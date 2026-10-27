@@ -3,7 +3,7 @@ import { Sun, Moon, CheckCircle2 } from 'lucide-react';
 
 export interface OptionsHeaderProps {
   isDark: boolean;
-  onToggleTheme: () => void;
+  onToggleTheme: (e: React.MouseEvent) => void;
   savedToast: string | null;
 }
 
@@ -38,7 +38,7 @@ export const OptionsHeader: React.FC<OptionsHeaderProps> = ({
             >
               BiliFlow
               <span className="text-[10px] font-mono font-medium px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500">
-                v2.0.23
+                v2.0.24
               </span>
             </h1>
             <p className="text-[11px] text-slate-400">极速心流 · 模型工作台</p>
@@ -50,8 +50,8 @@ export const OptionsHeader: React.FC<OptionsHeaderProps> = ({
           onClick={onToggleTheme}
           className={`p-2 rounded-xl border transition-all cursor-pointer ${
             isDark
-              ? 'bg-slate-800/80 border-slate-700 text-amber-300 hover:bg-slate-700'
-              : 'bg-slate-100 border-slate-200 text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+              ? 'bg-slate-800/80 border-slate-700 text-amber-300 hover:bg-slate-700 shadow-xs'
+              : 'bg-slate-100/80 border-slate-200/90 text-slate-700 hover:bg-slate-200/80 hover:text-slate-900 shadow-xs'
           }`}
           title={isDark ? '切换为柔和浅色模式 (Light)' : '切换为暗黑夜间模式 (Dark)'}
         >

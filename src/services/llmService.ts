@@ -281,7 +281,32 @@ async function executeSingleChatCompletion(params: {
 /**
  * Generate structured video summary with automatic Cross-Provider Fallback failover strategy.
  */
-export async function generateVideoSummary(params: {
+export function attachQuotesToHighlights(
+  rawHighlights: HighlightItem[],
+  subtitles: BiliRawSubtitleItem[]
+): HighlightItem[] {
+  const snappedList = rawHighlights.map((item) => {
+    const rawSec = item.timestamp ?? item.timestampSec ?? 0;
+    const snappedSec = snapTimestampToUtterance(rawSec, subtitles);
+    return {
+      ...item,
+      timestamp: snappedSec,
+      timestampSec: snappedSec,
+      timestampStr: formatSeconds(snappedSec),
+    };
+  });
+
+  return snappedList.map((item, idx, arr) => {
+    const nextItem = arr[idx + 1];
+    const nextSec = nextItem ? nextItem.timestampSec : undefined;
+    return {
+      ...item,
+      originalQuotes: extractQuotesForHighlight(item.timestampSec, subtitles, nextSec),
+    };
+  });
+}
+
+export interface GenerateVideoSummaryParams {
   bvid: string;
   cid: string;
   title: string;
@@ -290,8 +315,13 @@ export async function generateVideoSummary(params: {
   model?: string;
   fallbackProvider?: ProviderConfig;
   fallbackModel?: string;
+  candidateProviders?: ProviderConfig[];
   enableFallback?: boolean;
-}): Promise<VideoSummaryResult> {
+}
+
+export async function generateVideoSummary(
+  params: GenerateVideoSummaryParams
+): Promise<VideoSummaryResult> {
   const {
     bvid,
     cid,
@@ -301,6 +331,7 @@ export async function generateVideoSummary(params: {
     model,
     fallbackProvider,
     fallbackModel,
+    candidateProviders,
     enableFallback = true,
   } = params;
 
@@ -332,99 +363,111 @@ export async function generateVideoSummary(params: {
 ${formattedTranscript}
 `.trim();
 
-  const endpoint = formatBaseUrl(provider.baseUrl, 'chat/completions');
   const primaryModel =
     model || provider.selectedModel || provider.models[0] || 'deepseek-chat';
 
-  // Determine fallback target: can be Cross-Provider OR Same-Provider
-  const hasCrossProvider =
-    fallbackProvider &&
-    fallbackProvider.apiKey &&
-    (fallbackProvider.id !== provider.id || Boolean(fallbackModel));
+  // Build prioritized execution queue
+  interface ExecutionTarget {
+    provider: ProviderConfig;
+    model: string;
+    isFallback: boolean;
+  }
 
-  const targetFallbackProvider = hasCrossProvider ? fallbackProvider : provider;
-  const targetFallbackModel =
-    fallbackModel ||
-    targetFallbackProvider.fallbackModel ||
-    (targetFallbackProvider.models.find((m) => m !== primaryModel) || targetFallbackProvider.selectedModel || targetFallbackProvider.models[0]);
+  const queue: ExecutionTarget[] = [
+    { provider, model: primaryModel, isFallback: false },
+  ];
 
-  const canFailover =
-    enableFallback &&
-    targetFallbackProvider &&
-    Boolean(targetFallbackProvider.apiKey) &&
-    Boolean(targetFallbackModel) &&
-    (targetFallbackProvider.id !== provider.id || targetFallbackModel !== primaryModel);
+  if (enableFallback) {
+    // 1. Explicit fallback target (same-provider or dedicated cross-provider)
+    const hasExplicitCross =
+      fallbackProvider &&
+      fallbackProvider.apiKey &&
+      (fallbackProvider.id !== provider.id || Boolean(fallbackModel));
 
-  try {
-    const rawContent = await executeSingleChatCompletion({
-      endpoint,
-      apiKey: provider.apiKey,
-      model: primaryModel,
-      userPrompt,
-    });
+    const targetFallbackProvider = hasExplicitCross ? fallbackProvider : provider;
+    const targetFallbackModel =
+      fallbackModel ||
+      targetFallbackProvider.fallbackModel ||
+      (targetFallbackProvider.models.find((m) => m !== primaryModel) ||
+        targetFallbackProvider.selectedModel ||
+        targetFallbackProvider.models[0]);
 
-    const parsed = parseLLMSummaryOutput(rawContent, { bvid, cid, title });
-    const highlightsWithQuotes = parsed.highlights.map((item) => {
-      const rawSec = item.timestamp ?? item.timestampSec ?? 0;
-      const snappedSec = snapTimestampToUtterance(rawSec, subtitles);
-      return {
-        ...item,
-        timestamp: snappedSec,
-        timestampSec: snappedSec,
-        timestampStr: formatSeconds(snappedSec),
-        originalQuotes: extractQuotesForHighlight(snappedSec, subtitles),
-      };
-    });
-
-    return {
-      ...parsed,
-      highlights: highlightsWithQuotes,
-      usedModel: primaryModel,
-      usedProviderName: provider.name,
-      isFallbackUsed: false,
-    };
-  } catch (primaryErr: any) {
-    // If fallback is enabled and candidate model is available, attempt failover!
-    if (canFailover) {
-      console.warn(
-        `[BiliFlow Failover] 主用【${provider.name} · ${primaryModel}】请求失败 (${primaryErr.message})，正在自动切换至【${targetFallbackProvider.name} · ${targetFallbackModel}】容灾兜底...`
-      );
-      try {
-        const fallbackEndpoint = formatBaseUrl(targetFallbackProvider.baseUrl, 'chat/completions');
-        const fallbackContent = await executeSingleChatCompletion({
-          endpoint: fallbackEndpoint,
-          apiKey: targetFallbackProvider.apiKey,
-          model: targetFallbackModel,
-          userPrompt,
-        });
-
-        const parsed = parseLLMSummaryOutput(fallbackContent, { bvid, cid, title });
-        const highlightsWithQuotes = parsed.highlights.map((item) => {
-          const rawSec = item.timestamp ?? item.timestampSec ?? 0;
-          const snappedSec = snapTimestampToUtterance(rawSec, subtitles);
-          return {
-            ...item,
-            timestamp: snappedSec,
-            timestampSec: snappedSec,
-            timestampStr: formatSeconds(snappedSec),
-            originalQuotes: extractQuotesForHighlight(snappedSec, subtitles),
-          };
-        });
-
-        return {
-          ...parsed,
-          highlights: highlightsWithQuotes,
-          usedModel: targetFallbackModel,
-          usedProviderName: targetFallbackProvider.name,
-          isFallbackUsed: true,
-        };
-      } catch (fallbackErr: any) {
-        throw new Error(
-          `主用【${provider.name} · ${primaryModel}】与兜底【${targetFallbackProvider.name} · ${targetFallbackModel}】均请求失败: ${fallbackErr.message}`
-        );
-      }
+    if (
+      targetFallbackProvider.apiKey &&
+      targetFallbackModel &&
+      (targetFallbackProvider.id !== provider.id || targetFallbackModel !== primaryModel)
+    ) {
+      queue.push({
+        provider: targetFallbackProvider,
+        model: targetFallbackModel,
+        isFallback: true,
+      });
     }
 
-    throw primaryErr;
+    // 2. Cascade through all other configured candidate providers
+    if (Array.isArray(candidateProviders)) {
+      for (const cp of candidateProviders) {
+        if (!cp.apiKey || cp.apiKey.trim().length === 0) continue;
+        const alreadyInQueue = queue.some((q) => q.provider.id === cp.id);
+        if (!alreadyInQueue) {
+          const cpModel = cp.selectedModel || cp.models[0] || 'default';
+          queue.push({
+            provider: cp,
+            model: cpModel,
+            isFallback: true,
+          });
+        }
+      }
+    }
   }
+
+  const errors: string[] = [];
+
+  // Waterfall sequential execution across candidate targets
+  for (let i = 0; i < queue.length; i++) {
+    const target = queue[i];
+    const isPrimary = i === 0;
+    const endpoint = formatBaseUrl(target.provider.baseUrl, 'chat/completions');
+
+    if (!isPrimary) {
+      console.warn(
+        `[BiliFlow Failover] 正在自动切换至【${target.provider.name} · ${target.model}】(第 ${i + 1}/${queue.length} 级容灾兜底)...`
+      );
+    }
+
+    try {
+      const rawContent = await executeSingleChatCompletion({
+        endpoint,
+        apiKey: target.provider.apiKey,
+        model: target.model,
+        userPrompt,
+      });
+
+      const parsed = parseLLMSummaryOutput(rawContent, { bvid, cid, title });
+      const highlightsWithQuotes = attachQuotesToHighlights(parsed.highlights, subtitles);
+
+      return {
+        ...parsed,
+        highlights: highlightsWithQuotes,
+        usedModel: target.model,
+        usedProviderName: target.provider.name,
+        isFallbackUsed: target.isFallback,
+      };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      errors.push(`【${target.provider.name} · ${target.model}】: ${errMsg}`);
+
+      // If this was the last candidate in queue, construct a comprehensive error
+      if (i === queue.length - 1) {
+        if (queue.length > 1) {
+          throw new Error(
+            `全线容灾尝试均失败 (共尝试 ${queue.length} 个服务商模型):\n${errors.join('\n')}`
+          );
+        }
+        throw err;
+      }
+    }
+  }
+
+  throw new Error('未配置任何可用的 AI 服务商模型。');
 }

@@ -42,6 +42,7 @@ export interface UserSettings extends FeatureFlags {
   activeProviderId: string;
   activeModel?: string;
   enableFallback?: boolean;
+  failoverPriorityIds?: string[]; // 自定义或全局多厂商容灾调度优先级列表
   autoFetch?: boolean;           // 向下兼容保留字段（旧版 autoFetch 自动迁移到 autoSummarize）
   shortcutToggle?: string;
   shortcutPrevNode?: string;

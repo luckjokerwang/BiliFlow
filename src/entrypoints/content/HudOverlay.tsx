@@ -496,7 +496,7 @@ export const HudOverlay: React.FC = () => {
                     showToast('已删除感悟');
                   }}
                   onInsertToNativeNote={(h, withScreenshot) => {
-                    insertCardToNativeNote(h, getForHighlight(h.id), withScreenshot);
+                    return insertCardToNativeNote(h, getForHighlight(h.id), withScreenshot);
                   }}
                   itemRefs={itemRefs}
                 />

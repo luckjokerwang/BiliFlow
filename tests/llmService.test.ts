@@ -188,6 +188,93 @@ describe('Cross-Provider Fallback & Resilience', () => {
     expect(result.highlights[0].title).toBe('容灾设计');
   });
 
+  it('cascades sequentially across 3 providers when primary and secondary both fail', async () => {
+    const primaryProvider: ProviderConfig = {
+      id: 'deepseek',
+      name: 'DeepSeek 官方',
+      baseUrl: 'https://api.deepseek.com/v1',
+      apiKey: 'sk-deepseek',
+      models: ['deepseek-chat'],
+      selectedModel: 'deepseek-chat',
+    };
+
+    const secondProvider: ProviderConfig = {
+      id: 'siliconflow',
+      name: 'SiliconFlow 硅基流动',
+      baseUrl: 'https://api.siliconflow.cn/v1',
+      apiKey: 'sk-silicon',
+      models: ['deepseek-ai/DeepSeek-V3'],
+      selectedModel: 'deepseek-ai/DeepSeek-V3',
+    };
+
+    const thirdProvider: ProviderConfig = {
+      id: 'zhipu',
+      name: '智谱清言',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
+      apiKey: 'sk-zhipu',
+      models: ['glm-4-flash'],
+      selectedModel: 'glm-4-flash',
+    };
+
+    const mockSuccessResponse = {
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              oneSentenceSummary: '三级瀑布容灾成功。',
+              highlights: [
+                { timestamp: '00:10', title: '智谱兜底成功', keyPoint: '全厂商容灾' },
+              ],
+            }),
+          },
+        },
+      ],
+    };
+
+    global.fetch = vi.fn().mockImplementation((url: string) => {
+      if (url.includes('api.deepseek.com')) {
+        return Promise.resolve({
+          ok: false,
+          status: 503,
+          statusText: 'Service Unavailable',
+          text: () => Promise.resolve('DeepSeek 503 Overloaded'),
+        });
+      }
+      if (url.includes('api.siliconflow.cn')) {
+        return Promise.resolve({
+          ok: false,
+          status: 429,
+          statusText: 'Too Many Requests',
+          text: () => Promise.resolve('SiliconFlow Rate Limit'),
+        });
+      }
+      if (url.includes('open.bigmodel.cn')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.resolve(mockSuccessResponse),
+        });
+      }
+      return Promise.reject(new Error('Unknown url'));
+    });
+
+    const result = await generateVideoSummary({
+      bvid: 'BV1cascade',
+      cid: '99999',
+      title: '多级容灾测试',
+      subtitles: validSubtitles,
+      provider: primaryProvider,
+      fallbackProvider: secondProvider,
+      candidateProviders: [secondProvider, thirdProvider],
+      enableFallback: true,
+    });
+
+    expect(result.isFallbackUsed).toBe(true);
+    expect(result.usedProviderName).toBe('智谱清言');
+    expect(result.usedModel).toBe('glm-4-flash');
+    expect(result.highlights[0].title).toBe('智谱兜底成功');
+  });
+
   it('retries on 429 transient rate limit and succeeds without failover', async () => {
     let callCount = 0;
     const mockSuccessResponse = {

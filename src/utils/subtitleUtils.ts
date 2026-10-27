@@ -129,21 +129,27 @@ export function fuseSubtitles(
 }
 
 /**
- * Extracts 3~5 relevant original subtitle quotes around a highlight's timestamp.
- * Window: default from (highlight - 4s) to (highlight + 35s).
+ * Extracts relevant original subtitle quotes for a highlight's section.
+ * Automatically spans across the section from highlightTimeSec to nextHighlightSec (if provided),
+ * or up to defaultWindowAfterSec / maxQuotes.
  */
 export function extractQuotesForHighlight(
   highlightTimeSec: number,
   subtitles: BiliRawSubtitleItem[],
-  windowBeforeSec = 3,
-  windowAfterSec = 35,
-  maxQuotes = 5
+  nextHighlightSec?: number,
+  windowBeforeSec = 2,
+  defaultWindowAfterSec = 45,
+  maxQuotes = 30
 ): OriginalQuote[] {
   if (!Array.isArray(subtitles) || subtitles.length === 0) return [];
 
-  const startTime = Math.max(0, highlightTimeSec - windowBeforeSec);
-  const endTime = highlightTimeSec + windowAfterSec;
-
+  const hasNextSection = typeof nextHighlightSec === 'number' && nextHighlightSec > highlightTimeSec;
+  // When an explicit next section is provided, avoid bleeding into previous section's ended utterances
+  const effectiveBefore = hasNextSection ? Math.min(windowBeforeSec, 0.5) : windowBeforeSec;
+  const startTime = Math.max(0, highlightTimeSec - effectiveBefore);
+  const endTime = hasNextSection
+    ? Math.min(nextHighlightSec - 0.5, highlightTimeSec + 300)
+    : highlightTimeSec + defaultWindowAfterSec;
   const matched: BiliRawSubtitleItem[] = [];
 
   for (const sub of subtitles) {

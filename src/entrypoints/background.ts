@@ -139,6 +139,11 @@ export default defineBackground(() => {
             ? settings.providers?.find((p) => p.id === activeProvider.fallbackProviderId)
             : undefined;
 
+          // Candidate providers across all configured providers with valid apiKeys
+          const candidateProviders = (settings.providers || []).filter(
+            (p) => p.apiKey && p.apiKey.trim().length > 0 && p.id !== activeProvider.id
+          );
+
           const summary = await generateVideoSummary({
             bvid,
             cid,
@@ -148,6 +153,7 @@ export default defineBackground(() => {
             model: settings.activeModel || activeProvider.selectedModel,
             fallbackProvider,
             fallbackModel: activeProvider.fallbackModel,
+            candidateProviders,
             enableFallback: settings.enableFallback ?? true,
           });
 

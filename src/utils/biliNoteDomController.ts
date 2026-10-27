@@ -20,21 +20,22 @@ export class BiliNoteDomController {
    * (Normal page, theater mode, fullscreen, and responsive).
    */
   static findNativeNoteButton(): HTMLElement | null {
-    // 1. Check known stable selectors
+    // 1. Check known stable direct selectors across all Bilibili layouts
     const direct = document.querySelector<HTMLElement>(
-      '.video-toolbar-right-note, .toolbar-right-note, .bpx-player-ctrl-note, .video-note-btn, [title*="记笔记"], [aria-label*="记笔记"]'
+      '.video-toolbar-right-note, .video-toolbar-left-note, .toolbar-right-note, .bpx-player-ctrl-note, .video-note-btn, .note-btn, [data-title*="记笔记"], [title*="记笔记"], [aria-label*="记笔记"]'
     );
     if (direct) return direct;
 
     // 2. Search within toolbar containers for text "记笔记"
     const toolbars = document.querySelectorAll<HTMLElement>(
-      '.video-toolbar-v1, .video-toolbar, #arc_toolbar_report, .video-toolbar-container, .bpx-player-control-bottom-right'
+      '.video-toolbar-v1, .video-toolbar, #arc_toolbar_report, .video-toolbar-container, .bpx-player-control-bottom-right, .video-toolbar-module'
     );
     for (const tb of toolbars) {
       const candidates = tb.querySelectorAll<HTMLElement>('*');
       for (const el of candidates) {
-        if (el.textContent?.trim() === '记笔记' && el.children.length === 0) {
-          return el.closest<HTMLElement>('button, div, span, a') || el;
+        const text = el.textContent?.trim();
+        if ((text === '记笔记' || text === '笔记') && el.children.length === 0) {
+          return el.closest<HTMLElement>('button, div[role="button"], div, span, a') || el;
         }
       }
     }
@@ -42,7 +43,8 @@ export class BiliNoteDomController {
     // 3. Document-wide scan for buttons or clickable divs containing "记笔记"
     const all = document.querySelectorAll<HTMLElement>('button, div[role="button"], a, span');
     for (const el of all) {
-      if (el.textContent?.trim() === '记笔记' && el.children.length <= 1) {
+      const text = el.textContent?.trim();
+      if ((text === '记笔记' || text === '笔记') && el.children.length <= 1) {
         return el;
       }
     }
@@ -52,15 +54,26 @@ export class BiliNoteDomController {
 
   /**
    * Ensures Bilibili's native note drawer is opened.
-   * If closed, simulates a click on the official "记笔记" button and awaits editor mounting.
+   * If closed, simulates standard mouse interaction on the official "记笔记" button and awaits editor mounting.
    */
   static async ensureNativeNoteOpen(): Promise<boolean> {
     if (this.isNativeNoteOpen()) return true;
 
     const noteBtn = this.findNativeNoteButton();
     if (noteBtn) {
-      noteBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      noteBtn.click();
+      // Fire complete event sequence to trigger Bilibili's internal handlers
+      try {
+        if (typeof PointerEvent !== 'undefined') {
+          noteBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+        }
+        noteBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+        noteBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+        noteBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      } catch {}
+
+      if (typeof noteBtn.click === 'function') {
+        noteBtn.click();
+      }
 
       // Poll until .ql-editor is mounted (up to 3 seconds)
       for (let i = 0; i < 30; i++) {

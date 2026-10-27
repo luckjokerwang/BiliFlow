@@ -29,3 +29,29 @@ html, body, #root {
   width: 0 !important;
   height: 0 !important;
 }
+
+/* Circular Reveal Theme Transition (View Transitions API) */
+::view-transition-group(root),
+::view-transition-image-pair(root) {
+  animation: none !important;
+}
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation: none !important;
+  mix-blend-mode: normal !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  object-fit: cover !important;
+}
+
+::view-transition-old(root) {
+  z-index: 1;
+}
+
+::view-transition-new(root) {
+  z-index: 9999;
+}

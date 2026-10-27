@@ -5,6 +5,7 @@ import { ProviderConfig, UserSettings, ExtensionResponse, ThemeMode } from '../.
 import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../../constants';
 import { mergeSettingsWithDefaults } from '../../services/settingsService';
 
+import { toggleThemeWithTransition } from '../../utils/themeTransition';
 import { OptionsHeader } from './components/OptionsHeader';
 import { ProviderSidebarList } from './components/ProviderSidebarList';
 import { ProviderConfigTab } from './components/ProviderConfigTab';
@@ -196,12 +197,14 @@ export const App: React.FC = () => {
 
   const isDark = settings.theme !== 'light';
 
-  const toggleTheme = () => {
+  const toggleTheme = (e?: React.MouseEvent) => {
     const nextTheme: ThemeMode = isDark ? 'light' : 'dark';
-    saveSettings(
-      { ...settings, theme: nextTheme },
-      `已切换为 ${nextTheme === 'light' ? '柔和浅色' : '深邃暗色'} 模式`
-    );
+    toggleThemeWithTransition(e, () => {
+      saveSettings(
+        { ...settings, theme: nextTheme },
+        `已切换为 ${nextTheme === 'light' ? '柔和浅色' : '深邃暗色'} 模式`
+      );
+    });
   };
 
   const selectedProvider =
@@ -474,13 +477,13 @@ export const App: React.FC = () => {
 
   return (
     <div
-      className={`flex h-screen overflow-hidden font-sans transition-colors duration-200 ${
+      className={`flex h-screen overflow-hidden font-sans ${
         isDark ? 'bg-[#080d1a] text-slate-100' : 'bg-[#f5f6f8] text-slate-800'
       }`}
     >
       {/* Left Sidebar */}
       <div
-        className={`w-72 flex flex-col justify-between shrink-0 border-r transition-colors ${
+        className={`w-72 flex flex-col justify-between shrink-0 border-r ${
           isDark
             ? 'bg-[#0f172a]/95 border-slate-800/80 text-slate-200'
             : 'bg-white border-slate-200/80 text-slate-700 shadow-sm'

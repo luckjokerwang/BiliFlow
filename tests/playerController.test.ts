@@ -258,6 +258,40 @@ describe('playerController', () => {
         expect(isUserTyping()).toBe(false);
       }
     });
+
+    it('penetrates Shadow DOM using composedPath when e.target is retargeted to shadow host', () => {
+      const hostDiv = { tagName: 'WXT-UI' };
+      const textareaInShadow = {
+        tagName: 'TEXTAREA',
+        getAttribute: () => null,
+      };
+
+      const mockEvent = {
+        target: hostDiv,
+        composedPath: () => [textareaInShadow, hostDiv],
+      } as unknown as KeyboardEvent;
+
+      expect(isUserTyping(mockEvent)).toBe(true);
+    });
+
+    it('penetrates nested shadowRoot on document.activeElement', () => {
+      const globalObj = globalThis as { document?: { activeElement: unknown } };
+      if (globalObj.document) {
+        const textareaInside = {
+          tagName: 'TEXTAREA',
+          getAttribute: () => null,
+        };
+        globalObj.document.activeElement = {
+          tagName: 'DIV',
+          shadowRoot: {
+            activeElement: textareaInside,
+          },
+        };
+
+        expect(isUserTyping()).toBe(true);
+        globalObj.document.activeElement = null;
+      }
+    });
   });
 
   describe('getVideoDuration', () => {

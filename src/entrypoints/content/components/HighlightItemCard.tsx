@@ -118,7 +118,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
 
     try {
       const res = await onInsertToNativeNote?.(withScreenshot);
-      if (res !== false) {
+      if (res === true) {
         setSyncState('success');
         setTimeout(() => {
           setSyncState('idle');
@@ -129,7 +129,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
         setTimeout(() => {
           setSyncState('idle');
           setSyncTarget(null);
-        }, 1500);
+        }, 2000);
       }
     } catch (_) {
       setSyncState('error');

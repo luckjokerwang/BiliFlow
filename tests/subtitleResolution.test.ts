@@ -90,6 +90,25 @@ describe('Subtitle Waterfall & Utilities', () => {
       expect(quotes[0].timestampStr).toBe('01:00');
       expect(quotes[1].content).toBe('创下40年以来的历史新低');
     });
+
+    it('dynamically spans quotes up to nextHighlightSec across multiple minutes', () => {
+      const subs = [
+        { from: 5.0, to: 10.0, content: '引言' },
+        { from: 11.0, to: 25.0, content: '硬件配置吐槽开始' },
+        { from: 26.0, to: 50.0, content: '没有运行内存仅三按键' },
+        { from: 55.0, to: 80.0, content: '无IMU和摄像头体感无法实现' },
+        { from: 85.0, to: 110.0, content: '整体硬件太简陋对比测试' },
+        { from: 115.0, to: 140.0, content: '本章总结不推荐购买' },
+        { from: 168.0, to: 180.0, content: '下一亮点章节：Trae深度适配' },
+      ];
+
+      // Current highlight at 11s, next highlight at 168s (2分48秒)
+      const quotes = extractQuotesForHighlight(11, subs, 168);
+      expect(quotes.length).toBe(5);
+      expect(quotes[0].content).toBe('硬件配置吐槽开始');
+      expect(quotes[quotes.length - 1].content).toBe('本章总结不推荐购买');
+      expect(quotes.some((q) => q.content.includes('下一亮点章节'))).toBe(false);
+    });
   });
 
   describe('fetchBilibiliSubtitles', () => {

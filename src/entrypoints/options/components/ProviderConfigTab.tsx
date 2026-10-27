@@ -282,7 +282,11 @@ export const ProviderConfigTab: React.FC<ProviderConfigTabProps> = ({
               {selectedProvider.models && selectedProvider.models.length > 0 && (
                 <button
                   onClick={() => onOpenModelPicker(false)}
-                  className="flex items-center gap-1 px-3.5 py-1.5 bg-slate-800/40 hover:bg-slate-800 text-slate-300 text-xs font-medium rounded-xl border border-slate-700/60 transition-all cursor-pointer"
+                  className={`flex items-center gap-1 px-3.5 py-1.5 text-xs font-medium rounded-xl border transition-all cursor-pointer ${
+                    isDark
+                      ? 'bg-slate-800/40 hover:bg-slate-800 text-slate-300 border-slate-700/60'
+                      : 'bg-white hover:bg-slate-50 text-slate-700 border-slate-200 shadow-xs hover:border-slate-300'
+                  }`}
                 >
                   <span>管理 / 勾选模型池</span>
                 </button>
