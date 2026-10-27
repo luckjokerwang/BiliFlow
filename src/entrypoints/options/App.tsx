@@ -454,14 +454,17 @@ export const App: React.FC = () => {
   const handleImportConfig = () => {
     try {
       const parsed = JSON.parse(importJsonText);
-      if (parsed.providers && Array.isArray(parsed.providers)) {
-        saveSettings(parsed, '配置已成功恢复！');
+      if (parsed && typeof parsed === 'object' && Array.isArray(parsed.providers)) {
+        const merged = mergeSettingsWithDefaults(parsed);
+        const cleaned = migrateCleanSlate(merged);
+        saveSettings(cleaned, '配置已成功恢复！');
         setImportJsonText('');
       } else {
         alert('导入失败：JSON 格式不符合规范，缺少 providers 数组。');
       }
-    } catch (err: any) {
-      alert(`导入异常: ${err.message}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(`导入异常: ${msg}`);
     }
   };
 

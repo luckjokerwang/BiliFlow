@@ -1,3 +1,4 @@
+import { getVideoElement, seekToSeconds } from './playerController';
 /**
  * BiliNoteDomController: Manages interaction with Bilibili's native note editor (.ql-editor),
  * triggering the native note drawer, cursor positioning, and native screenshot integration.
@@ -192,7 +193,7 @@ export class BiliNoteDomController {
    * without triggering Bilibili's modal confirmation dialog.
    */
   static insertTimestamp(sec?: number, timeStr?: string): HTMLElement | null {
-    const video = document.querySelector<HTMLVideoElement>('video');
+    const video = getVideoElement();
     const actualSec = typeof sec === 'number' ? sec : Math.floor(video?.currentTime || 0);
     const m = Math.floor(actualSec / 60);
     const s = actualSec % 60;
@@ -280,7 +281,7 @@ export class BiliNoteDomController {
 
     // 3. Engine 2: Canvas snapshot + clipboard paste fallback
     try {
-      const video = document.querySelector<HTMLVideoElement>('video');
+      const video = getVideoElement();
       if (video && video.videoWidth > 0 && video.videoHeight > 0) {
         const canvas = document.createElement('canvas');
         canvas.width = video.videoWidth;
@@ -348,7 +349,7 @@ export class BiliNoteDomController {
     editor.focus();
 
     // 2. Format current time string
-    const video = document.querySelector<HTMLVideoElement>('video');
+    const video = getVideoElement();
     const sec = Math.floor(video?.currentTime || 0);
     const m = Math.floor(sec / 60);
     const s = sec % 60;
@@ -364,8 +365,8 @@ export class BiliNoteDomController {
         sel.removeAllRanges();
         sel.addRange(range);
       }
-    } catch (e) {
-      console.warn('[BiliFlow] Failed to collapse selection to editor end:', e);
+    } catch {
+      // Selection collapse failed gracefully
     }
 
     // 4. Insert structured clickable timestamp directly (Zero confirmation modal)
@@ -407,9 +408,7 @@ export function setupNativeNoteTimestampClickListener(): () => void {
       const rawSec = tagWithSec.getAttribute('data-seconds') || tagWithSec.getAttribute('data-time');
       const sec = Number(rawSec);
       if (!isNaN(sec) && sec >= 0) {
-        const video = document.querySelector<HTMLVideoElement>('video');
-        if (video) {
-          video.currentTime = sec;
+        if (seekToSeconds(sec)) {
           return;
         }
       }
@@ -425,9 +424,8 @@ export function setupNativeNoteTimestampClickListener(): () => void {
       } else {
         seconds = parseInt(match[1], 10) * 60 + parseInt(match[2], 10);
       }
-      const video = document.querySelector<HTMLVideoElement>('video');
-      if (video && seconds >= 0) {
-        video.currentTime = seconds;
+      if (seconds >= 0) {
+        seekToSeconds(seconds);
       }
     }
   };
