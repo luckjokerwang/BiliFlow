@@ -15,7 +15,7 @@ export interface HUDHeaderProps {
   onExportToBiliNote?: () => void;
 }
 
-export const HUDHeader: React.FC<HUDHeaderProps> = ({
+export const HUDHeader = React.memo<HUDHeaderProps>(({
   isDark,
   loading,
   isFallbackUsed,
@@ -148,4 +148,4 @@ export const HUDHeader: React.FC<HUDHeaderProps> = ({
       </div>
     </div>
   );
-};
+});

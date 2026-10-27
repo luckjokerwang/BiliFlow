@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { browser } from 'wxt/browser';
 import { Loader2, AlertCircle, RotateCcw, FileText, Settings } from 'lucide-react';
 import { HighlightItem } from '../../types';
@@ -265,15 +265,24 @@ export const HudOverlay: React.FC = () => {
     setExpandedQuoteIds(new Set());
   }, [summary?.bvid, summary?.cid]);
 
+  // Memoize timeline markers and segments to prevent re-generating fresh object references on every 2s tick
+  const timelineMarkers = useMemo(() => {
+    if (!summary?.highlights || summary.highlights.length === 0 || duration <= 0) return [];
+    return calculateTimelineMarkers(summary.highlights, duration);
+  }, [summary?.highlights, duration]);
+
+  const timelineSegments = useMemo(() => {
+    if (!timelineMarkers || timelineMarkers.length === 0 || duration <= 0) return [];
+    return calculateTimelineSegments(timelineMarkers, duration);
+  }, [timelineMarkers, duration]);
+
   // Synchronize Timeline Markers on Bilibili progress bar
   useEffect(() => {
     const updateMarkers = () => {
-      if (summary?.highlights && summary.highlights.length > 0 && duration > 0) {
-        const markers = calculateTimelineMarkers(summary.highlights, duration);
-        const segments = calculateTimelineSegments(markers, duration);
+      if (timelineMarkers.length > 0 && duration > 0) {
         renderTimelineMarkers(
-          markers,
-          segments,
+          timelineMarkers,
+          timelineSegments,
           duration,
           {
             showTimelineMarkers: settings.showTimelineMarkers,
@@ -295,7 +304,15 @@ export const HudOverlay: React.FC = () => {
       clearInterval(interval);
       cleanupPlayerInjections();
     };
-  }, [summary, duration, settings.showTimelineMarkers, settings.showHoverCard, seekTo, showToast]);
+  }, [
+    timelineMarkers,
+    timelineSegments,
+    duration,
+    settings.showTimelineMarkers,
+    settings.showHoverCard,
+    seekTo,
+    showToast,
+  ]);
 
   // Copy Markdown to Clipboard (Dual-track with user annotations)
   const handleCopyMarkdown = useCallback(async () => {

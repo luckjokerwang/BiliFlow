@@ -68,7 +68,7 @@ export const HighlightList: React.FC<HighlightListProps> = ({
               isSelected={selectedIndex === idx}
               isExpanded={expandedQuoteIds.has(item.id)}
               enableNumberKeySeek={enableNumberKeySeek}
-              currentPlaybackSec={currentPlaybackSec}
+              currentPlaybackSec={expandedQuoteIds.has(item.id) ? currentPlaybackSec : 0}
               annotation={annotation}
               onJump={onJump}
               onToggleExpand={onToggleQuoteExpand}

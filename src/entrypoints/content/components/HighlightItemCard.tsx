@@ -42,7 +42,7 @@ const ANNOTATION_TYPES: Array<{ type: UserAnnotationType; label: string }> = [
   { type: 'keypoint', label: '⭐ 重点' },
 ];
 
-export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
+export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
   isDark,
   item,
   index,
@@ -460,4 +460,4 @@ export const HighlightItemCard: React.FC<HighlightItemCardProps> = ({
       </div>
     </div>
   );
-};
+});
