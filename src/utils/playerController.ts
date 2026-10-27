@@ -212,15 +212,39 @@ export function extractVideoMeta(): {
   title: string;
   pIndex: number;
 } | null {
-  // 1. Extract BV from URL pathname or query parameters (e.g. /list/watchlater?bvid=BV...)
+  // 1. Extract BV from URL pathname, query parameters, canonical link, or page metadata
   const urlParams = new URLSearchParams(window.location.search);
-  const match = window.location.pathname.match(/\/video\/(BV[a-zA-Z0-9]+)/);
+  const match =
+    window.location.pathname.match(/\/(?:video|medialist\/play\/[^/]+)\/(BV[a-zA-Z0-9]+)/) ||
+    window.location.pathname.match(/\b(BV[a-zA-Z0-9]{10})\b/);
   let bvid = match ? match[1] : '';
 
   if (!bvid) {
     const queryBvid = urlParams.get('bvid');
     if (queryBvid && /^BV[a-zA-Z0-9]+$/.test(queryBvid)) {
       bvid = queryBvid;
+    }
+  }
+
+  // 2. Fallback for Bangumi (ep/ss) & Medialist: check canonical link, og:url, or __INITIAL_STATE__
+  if (!bvid && typeof document !== 'undefined') {
+    const canonicalHref =
+      document.querySelector('link[rel="canonical"]')?.getAttribute('href') ||
+      document.querySelector('meta[property="og:url"]')?.getAttribute('content') ||
+      '';
+    const canonicalMatch = canonicalHref.match(/\b(BV[a-zA-Z0-9]{10})\b/);
+    if (canonicalMatch) {
+      bvid = canonicalMatch[1];
+    }
+  }
+
+  if (!bvid && typeof window !== 'undefined') {
+    const win = window as unknown as Record<string, unknown>;
+    const initialState = win.__INITIAL_STATE__ as Record<string, unknown> | undefined;
+    const epInfo = initialState?.epInfo as Record<string, unknown> | undefined;
+    const stateBvid = (epInfo?.bvid || initialState?.bvid) as string | undefined;
+    if (stateBvid && /^BV[a-zA-Z0-9]+$/.test(stateBvid)) {
+      bvid = stateBvid;
     }
   }
 

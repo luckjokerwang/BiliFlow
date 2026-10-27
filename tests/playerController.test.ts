@@ -210,6 +210,30 @@ describe('playerController', () => {
       expect(meta?.bvid).toBe('BV1rHh16CEfm');
       expect(meta?.pIndex).toBe(1);
     });
+    it('extracts bvid from medialist play pathname', () => {
+      mockLocation.pathname = '/medialist/play/watchlater/BV1rHh16CEfm';
+      mockLocation.search = '';
+
+      const meta = extractVideoMeta();
+      expect(meta).not.toBeNull();
+      expect(meta?.bvid).toBe('BV1rHh16CEfm');
+      expect(meta?.pIndex).toBe(1);
+    });
+
+    it('extracts bvid from canonical link on Bangumi episode pages', () => {
+      mockLocation.pathname = '/bangumi/play/ep845123';
+      mockLocation.search = '';
+
+      const canonicalEl = createMockElement('link', {
+        rel: 'canonical',
+        href: 'https://www.bilibili.com/video/BV1rHh16CEfm',
+      });
+      mockElements['link[rel="canonical"]'] = [canonicalEl];
+
+      const meta = extractVideoMeta();
+      expect(meta).not.toBeNull();
+      expect(meta?.bvid).toBe('BV1rHh16CEfm');
+    });
 
     it('returns null if current page is not a Bilibili video page', () => {
       mockLocation.pathname = '/';

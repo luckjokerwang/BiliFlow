@@ -160,10 +160,12 @@ export function hasVideoUrlChanged(urlA: string, urlB: string): boolean {
   const extractKey = (urlStr: string) => {
     try {
       const u = new URL(urlStr, 'https://www.bilibili.com');
-      const match = u.pathname.match(/\/video\/(BV[a-zA-Z0-9]+)/);
-      const bvid = match ? match[1] : '';
-      const p = u.searchParams.get('p') || '1';
-      return `${bvid}_p${p}`;
+      const bvidMatch = u.pathname.match(/\b(BV[a-zA-Z0-9]{10})\b/) || u.searchParams.get('bvid');
+      const bvid = typeof bvidMatch === 'string' ? bvidMatch : bvidMatch ? bvidMatch[1] : '';
+      const p = u.searchParams.get('p') || '';
+      const epMatch = u.pathname.match(/\/(ep\d+|ss\d+)/);
+      const ep = epMatch ? epMatch[1] : '';
+      return `${bvid}_${ep}_p${p}`;
     } catch {
       return urlStr;
     }

@@ -8,7 +8,12 @@ import { getPlayerContainer } from '../../utils/playerController';
 import { setupNativeNoteTimestampClickListener } from '../../utils/biliNoteDomController';
 
 export default defineContentScript({
-  matches: ['*://*.bilibili.com/video/*', '*://*.bilibili.com/list/*'],
+  matches: [
+    '*://*.bilibili.com/video/*',
+    '*://*.bilibili.com/list/*',
+    '*://*.bilibili.com/bangumi/play/*',
+    '*://*.bilibili.com/medialist/play/*',
+  ],
   cssInjectionMode: 'ui',
 
   async main(ctx) {
@@ -73,11 +78,12 @@ export default defineContentScript({
 
     // 2. Listen to Zen Browser window geometry, split screen, or visibility changes
     window.addEventListener('resize', ensureHostMounted);
-    document.addEventListener('visibilitychange', () => {
+    const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
         ensureHostMounted();
       }
-    });
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // 3. Custom event dispatched right before opening HUD or during SPA route transition
     window.addEventListener('biliflow:ensure-mount', ensureHostMounted);
@@ -106,6 +112,7 @@ export default defineContentScript({
       document.removeEventListener('webkitfullscreenchange', handleFullscreenTransition);
       document.removeEventListener('mozfullscreenchange', handleFullscreenTransition);
       window.removeEventListener('resize', ensureHostMounted);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('biliflow:ensure-mount', ensureHostMounted);
       window.removeEventListener('biliflow:spa-navigate', handleSpaNavigation);
     });
