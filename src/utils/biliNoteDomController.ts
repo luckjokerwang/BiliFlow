@@ -5,47 +5,62 @@ import { getVideoElement, seekToSeconds } from './playerController';
  */
 
 export class BiliNoteDomController {
-  /**
-   * Checks if Bilibili's native note editor is open and ready.
-   */
   static isNativeNoteOpen(): boolean {
     const editor = document.querySelector<HTMLElement>('.ql-editor');
     if (!editor) return false;
-    const rect = editor.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
+    // Element exists in DOM and is attached to a rendered container
+    return Boolean(editor.isConnected);
   }
 
   /**
    * Comprehensive locator for Bilibili's "记笔记" button across all layouts
-   * (Normal page, theater mode, fullscreen, and responsive).
+   * (Normal page, theater mode, fullscreen, responsive, and side modules).
    */
   static findNativeNoteButton(): HTMLElement | null {
-    // 1. Check known stable direct selectors across all Bilibili layouts
+    // 1. Check known stable direct selectors across all Bilibili layouts & player versions
     const direct = document.querySelector<HTMLElement>(
-      '.video-toolbar-right-note, .video-toolbar-left-note, .toolbar-right-note, .bpx-player-ctrl-note, .video-note-btn, .note-btn, [data-title*="记笔记"], [title*="记笔记"], [aria-label*="记笔记"]'
+      '.video-toolbar-right-note, .video-toolbar-left-note, .toolbar-right-note, .bpx-player-ctrl-note, .video-note-btn, .note-btn, .note-entry-btn, [data-title*="记笔记"], [title*="记笔记"], [aria-label*="记笔记"], [data-report-click*="note"], .bpx-player-ctrl-note-enter'
     );
-    if (direct) return direct;
+    if (direct && !direct.closest('biliflow-hud-root, #biliflow-hud-root')) return direct;
+    // 2. Specific selectors in player control bar and video toolbar
+    const ctrlNote = document.querySelector<HTMLElement>(
+      '.bpx-player-control-bottom-right .bpx-player-ctrl-btn, .bilibili-player-video-btn-note'
+    );
+    if (ctrlNote && ctrlNote.textContent?.includes('笔记')) return ctrlNote;
 
-    // 2. Search within toolbar containers for text "记笔记"
+    // 2. Search within official Bilibili toolbar containers for text "记笔记"
     const toolbars = document.querySelectorAll<HTMLElement>(
-      '.video-toolbar-v1, .video-toolbar, #arc_toolbar_report, .video-toolbar-container, .bpx-player-control-bottom-right, .video-toolbar-module'
+      '.video-toolbar-v1, .video-toolbar, #arc_toolbar_report, .video-toolbar-container, .bpx-player-control-bottom-right, .video-toolbar-module, .video-info-detail, .video-info-toolbar'
     );
     for (const tb of toolbars) {
+      // Strictly skip BiliFlow's own host or UI elements
+      if (tb.closest('biliflow-hud-root, #biliflow-hud-root') || tb.tagName.toLowerCase().includes('biliflow')) {
+        continue;
+      }
       const candidates = tb.querySelectorAll<HTMLElement>('*');
       for (const el of candidates) {
         const text = el.textContent?.trim();
         if ((text === '记笔记' || text === '笔记') && el.children.length === 0) {
-          return el.closest<HTMLElement>('button, div[role="button"], div, span, a') || el;
+          const btn = el.closest<HTMLElement>('button, div[role="button"], div, span, a') || el;
+          if (!btn.closest('biliflow-hud-root, #biliflow-hud-root')) {
+            return btn;
+          }
         }
       }
     }
 
-    // 3. Document-wide scan for buttons or clickable divs containing "记笔记"
+    // 3. Document-wide scan for buttons or clickable divs containing "记笔记", strictly filtering out BiliFlow
     const all = document.querySelectorAll<HTMLElement>('button, div[role="button"], a, span');
     for (const el of all) {
+      if (el.closest('biliflow-hud-root, #biliflow-hud-root') || el.classList.contains('biliflow-btn')) {
+        continue;
+      }
       const text = el.textContent?.trim();
       if ((text === '记笔记' || text === '笔记') && el.children.length <= 1) {
-        return el;
+        // Ensure this is not BiliFlow's internal button
+        if (!el.textContent?.includes('B站笔记') && !el.textContent?.includes('带截图')) {
+          return el;
+        }
       }
     }
 
@@ -61,28 +76,84 @@ export class BiliNoteDomController {
 
     const noteBtn = this.findNativeNoteButton();
     if (noteBtn) {
-      // Fire complete event sequence to trigger Bilibili's internal handlers
-      try {
-        if (typeof PointerEvent !== 'undefined') {
-          noteBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+      // Trigger full interactive event dispatch sequence to pierce Vue/React event listeners
+      const fireClick = () => {
+        try {
+          if (typeof PointerEvent !== 'undefined') {
+            noteBtn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+          }
+          noteBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+          noteBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+          noteBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+        } catch {}
+        if (typeof noteBtn.click === 'function') {
+          noteBtn.click();
         }
-        noteBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-        noteBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
-        noteBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-      } catch {}
+      };
 
-      if (typeof noteBtn.click === 'function') {
-        noteBtn.click();
-      }
+      fireClick();
 
-      // Poll until .ql-editor is mounted (up to 3 seconds)
-      for (let i = 0; i < 30; i++) {
+      // Poll until .ql-editor is mounted in DOM (up to 4 seconds)
+      for (let i = 0; i < 40; i++) {
         await new Promise((r) => setTimeout(r, 100));
         if (this.isNativeNoteOpen()) return true;
+        // Re-fire at 1s in case initial click was ignored during layout initialization
+        if (i === 10) {
+          fireClick();
+        }
       }
     }
 
     return false;
+  }
+
+  /**
+   * Closes Bilibili's native note drawer by simulating click on close button or toggling note button.
+   */
+  static closeNativeNoteDrawer(): boolean {
+    const closeBtn = document.querySelector<HTMLElement>(
+      '.bili-note-panel .close, .bili-note-panel .close-btn, .bili-note-panel .icon-close, .bili-note-panel [title*="关闭"], .bili-note-panel [aria-label*="关闭"], .bili-note-panel [title*="收起"], .bili-note [title*="收起"]'
+    );
+    if (closeBtn) {
+      closeBtn.click();
+      return true;
+    }
+    const noteBtn = this.findNativeNoteButton();
+    if (noteBtn && this.isNativeNoteOpen()) {
+      noteBtn.click();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Natural Note Session:
+   * Automatically ensures Bilibili's native note drawer is open so the user can see it in real-time.
+   * Seamlessly executes injection and auto-focuses the editor.
+   */
+  static async withNativeNoteSession<T>(
+    action: (editor: HTMLElement) => Promise<T> | T
+  ): Promise<{ success: boolean; data?: T; error?: string }> {
+    try {
+      const opened = await this.ensureNativeNoteOpen();
+      if (!opened) {
+        return {
+          success: false,
+          error: '未能自动唤起 B站笔记，请确认已在 B站登录或退出全屏',
+        };
+      }
+
+      const editor = document.querySelector<HTMLElement>('.ql-editor');
+      if (!editor) {
+        return { success: false, error: '未找到 B站官方富文本编辑器容器' };
+      }
+
+      const data = await action(editor);
+      return { success: true, data };
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: errMsg };
+    }
   }
 
   /**
@@ -292,44 +363,8 @@ export class BiliNoteDomController {
       return { success: true, method: 'native-button' };
     }
 
-    // 3. Engine 2: Canvas snapshot + clipboard paste fallback
-    try {
-      const video = getVideoElement();
-      if (video && video.videoWidth > 0 && video.videoHeight > 0) {
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const blob = await new Promise<Blob | null>((res) =>
-            canvas.toBlob(res, 'image/jpeg', 0.85)
-          );
-
-          if (blob) {
-            const file = new File([blob], `bili-snap-${Date.now()}.jpg`, {
-              type: 'image/jpeg',
-            });
-            const dataTransfer = new DataTransfer();
-            dataTransfer.items.add(file);
-
-            const pasteEvent = new ClipboardEvent('paste', {
-              clipboardData: dataTransfer,
-              bubbles: true,
-              cancelable: true,
-            });
-
-            editor.dispatchEvent(pasteEvent);
-            editor.dispatchEvent(new Event('input', { bubbles: true }));
-            return { success: true, method: 'canvas-paste' };
-          }
-        }
-      }
-    } catch (err) {
-      console.warn('[BiliFlow] Canvas screenshot fallback failed:', err);
-    }
-
-    return { success: false, method: 'failed' };
+    // Safe fallback: Avoid synthesizing mock File or ClipboardEvent to prevent OS-level DMS clipboard errors on Linux
+    return { success: false, method: 'no-camera' };
   }
 
   /**

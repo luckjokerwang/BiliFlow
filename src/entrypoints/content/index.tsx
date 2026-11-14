@@ -5,7 +5,12 @@ import { defineContentScript } from 'wxt/sandbox';
 import { createShadowRootUi } from 'wxt/client';
 import { HudOverlay } from './HudOverlay';
 import { getPlayerContainer } from '../../utils/playerController';
-import { setupNativeNoteTimestampClickListener } from '../../utils/biliNoteDomController';
+import {
+  BiliNoteDomController,
+  setupNativeNoteTimestampClickListener,
+} from '../../utils/biliNoteDomController';
+import { setupBiliNoteEnhancer } from '../../utils/biliNoteEnhancer';
+import { startNoteSyncReplay } from '../../utils/noteSyncReplay';
 
 export default defineContentScript({
   matches: [
@@ -103,11 +108,20 @@ export default defineContentScript({
     }, 1000);
 
     // 5. Global timestamp click listener for jumping video from Bilibili note editor
+    // 5. Global timestamp click listener & Markdown styling enhancements for Bilibili native note editor
     const cleanupTimestampClicks = setupNativeNoteTimestampClickListener();
+    const cleanupNoteEnhancer = setupBiliNoteEnhancer();
+
+    // 6. Replay locally queued text notes whenever Bilibili mounts its note editor.
+    const stopNoteSyncReplay = startNoteSyncReplay({
+      inject: (html) => Boolean(BiliNoteDomController.insertHtmlAtCursor(html)),
+    });
 
     ctx.onInvalidated(() => {
       clearInterval(mountHeartbeat);
       cleanupTimestampClicks();
+      cleanupNoteEnhancer();
+      stopNoteSyncReplay();
       document.removeEventListener('fullscreenchange', handleFullscreenTransition);
       document.removeEventListener('webkitfullscreenchange', handleFullscreenTransition);
       document.removeEventListener('mozfullscreenchange', handleFullscreenTransition);
