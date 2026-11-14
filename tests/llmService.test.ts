@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { formatBaseUrl, generateVideoSummary } from '../src/services/llmService';
+import { ProviderConfig } from '../src/types';
 
 describe('formatBaseUrl', () => {
   it('formats standard openai base urls correctly', () => {
@@ -194,6 +195,7 @@ describe('Cross-Provider Fallback & Resilience', () => {
       name: 'DeepSeek 官方',
       baseUrl: 'https://api.deepseek.com/v1',
       apiKey: 'sk-deepseek',
+      enabled: true,
       models: ['deepseek-chat'],
       selectedModel: 'deepseek-chat',
     };
@@ -203,6 +205,7 @@ describe('Cross-Provider Fallback & Resilience', () => {
       name: 'SiliconFlow 硅基流动',
       baseUrl: 'https://api.siliconflow.cn/v1',
       apiKey: 'sk-silicon',
+      enabled: true,
       models: ['deepseek-ai/DeepSeek-V3'],
       selectedModel: 'deepseek-ai/DeepSeek-V3',
     };
@@ -212,6 +215,7 @@ describe('Cross-Provider Fallback & Resilience', () => {
       name: '智谱清言',
       baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
       apiKey: 'sk-zhipu',
+      enabled: true,
       models: ['glm-4-flash'],
       selectedModel: 'glm-4-flash',
     };

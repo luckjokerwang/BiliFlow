@@ -2,6 +2,7 @@ import {
   ProviderConfig,
   VideoSummaryResult,
   BiliRawSubtitleItem,
+  HighlightItem,
 } from '../types';
 import { chunkSubtitles, formatTranscriptForPrompt } from '../utils/transcriptChunker';
 import { parseLLMSummaryOutput } from '../utils/llmParser';

@@ -21,18 +21,26 @@ export const OriginalQuotesList: React.FC<OriginalQuotesListProps> = ({
   }
 
   const activeQuoteIndex = findActiveQuoteIndex(quotes, currentPlaybackSec);
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const activeItemRef = useRef<HTMLDivElement | null>(null);
 
-  // Smoothly scroll active quote into viewport as video playback advances
+  // Smoothly center active quote in the quotes container so both preceding and following lines remain visible
   useEffect(() => {
-    if (activeQuoteIndex >= 0 && activeItemRef.current) {
-      activeItemRef.current.scrollIntoView({
+    if (activeQuoteIndex >= 0 && activeItemRef.current && containerRef.current) {
+      const container = containerRef.current;
+      const target = activeItemRef.current;
+      const relativeTop = target.offsetTop - container.offsetTop;
+      const targetScrollTop = Math.max(
+        0,
+        relativeTop - container.clientHeight / 2 + target.clientHeight / 2
+      );
+
+      container.scrollTo({
+        top: targetScrollTop,
         behavior: 'smooth',
-        block: 'nearest',
       });
     }
   }, [activeQuoteIndex]);
-
   return (
     <div
       className={`mt-2 p-2.5 rounded-xl border text-[11px] space-y-1.5 transition-all select-text ${
@@ -56,8 +64,11 @@ export const OriginalQuotesList: React.FC<OriginalQuotesListProps> = ({
         <span className="text-[9px] text-slate-400">点击任意句可精准跳转</span>
       </div>
 
-      {/* Quotes Scrollable Container */}
-      <div className="space-y-1 max-h-[210px] overflow-y-auto pr-1 scroll-smooth">
+      {/* Quotes Scrollable Container with centered active positioning */}
+      <div
+        ref={containerRef}
+        className="relative space-y-1 max-h-[210px] overflow-y-auto pr-1 scroll-smooth"
+      >
         {quotes.map((quote, qIdx) => {
           const isQuoteActive = activeQuoteIndex === qIdx;
 
