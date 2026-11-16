@@ -1,20 +1,23 @@
-import { useState, useEffect, useCallback } from 'react';
-import { UserAnnotation, UserAnnotationType, VideoStudyNote } from '../../../types/biliNote';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import {
+  NativeNoteInsertResult,
+  UserAnnotation,
+  UserAnnotationType,
+} from '../../../types/biliNote';
 import { HighlightItem, VideoSummaryResult } from '../../../types';
 import {
   getAnnotations,
   saveAnnotation,
   deleteAnnotation,
+  getAnnotationForHighlight,
 } from '../../../services/annotationService';
-import {
-  formatCardToNoteHtml,
-  formatStudyNoteToDelta,
-  formatStudyNoteToMarkdown,
-} from '../../../utils/biliNoteFormatter';
+import { formatCardToNoteHtml } from '../../../utils/biliNoteFormatter';
 import { BiliNoteDomController } from '../../../utils/biliNoteDomController';
 import {
   enqueueNoteSync,
+  getPendingNoteSyncs,
   hasInjectedNote,
+  subscribeNoteSyncQueueChange,
 } from '../../../services/noteSyncQueueService';
 import { flushNoteSyncQueue, setNoteSyncVideoKey } from '../../../utils/noteSyncReplay';
 
@@ -27,11 +30,30 @@ export interface UseAnnotationsProps {
 export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
   const [annotations, setAnnotations] = useState<UserAnnotation[]>([]);
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState<number>(0);
+  const currentVideoKeyRef = useRef<string>('');
+
+  const refreshPendingCount = useCallback(async (): Promise<void> => {
+    if (!bvid || !cid) {
+      setPendingSyncCount(0);
+      return;
+    }
+    const key = `${bvid}_${cid}`;
+    const pending = await getPendingNoteSyncs(bvid, cid);
+    if (currentVideoKeyRef.current === key) {
+      setPendingSyncCount(pending.length);
+    }
+  }, [bvid, cid]);
 
   // Publish the API-resolved video key so the drawer watcher replays the right queue.
   useEffect(() => {
+    currentVideoKeyRef.current = bvid && cid ? `${bvid}_${cid}` : '';
     setNoteSyncVideoKey(bvid, cid);
-  }, [bvid, cid]);
+    void refreshPendingCount();
+    return subscribeNoteSyncQueueChange(() => {
+      void refreshPendingCount();
+    });
+  }, [bvid, cid, refreshPendingCount]);
 
   // Reload annotations when bvid/cid change
   useEffect(() => {
@@ -40,16 +62,12 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
       return;
     }
 
-    let isMounted = true;
+    const key = currentVideoKeyRef.current;
     getAnnotations(bvid, cid).then((list) => {
-      if (isMounted) {
+      if (currentVideoKeyRef.current === key) {
         setAnnotations(list);
       }
     });
-
-    return () => {
-      isMounted = false;
-    };
   }, [bvid, cid]);
 
   // Save or update an annotation
@@ -62,18 +80,21 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
       content: string;
       highlightId?: number | string;
       hasScreenshot?: boolean;
-    }) => {
+    }): Promise<UserAnnotation | void> => {
       if (!bvid || !cid) return;
+      const key = `${bvid}_${cid}`;
       const saved = await saveAnnotation(bvid, cid, data);
-      setAnnotations((prev) => {
-        const idx = prev.findIndex((item) => item.id === saved.id);
-        if (idx !== -1) {
-          const updated = [...prev];
-          updated[idx] = saved;
-          return updated;
-        }
-        return [...prev, saved].sort((a, b) => a.timestamp - b.timestamp);
-      });
+      if (currentVideoKeyRef.current === key) {
+        setAnnotations((prev) => {
+          const idx = prev.findIndex((item) => item.id === saved.id);
+          if (idx !== -1) {
+            const updated = [...prev];
+            updated[idx] = saved;
+            return updated;
+          }
+          return [...prev, saved].sort((a, b) => a.timestamp - b.timestamp);
+        });
+      }
       return saved;
     },
     [bvid, cid]
@@ -81,10 +102,11 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
 
   // Delete an annotation
   const handleDelete = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<boolean | void> => {
       if (!bvid || !cid) return;
+      const key = `${bvid}_${cid}`;
       const ok = await deleteAnnotation(bvid, cid, id);
-      if (ok) {
+      if (ok && currentVideoKeyRef.current === key) {
         setAnnotations((prev) => prev.filter((item) => item.id !== id));
       }
       return ok;
@@ -103,57 +125,56 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
   );
 
   // Text-only "记入笔记": always persisted locally first, then replayed into
-  // Bilibili's official editor (directly if the drawer is open, otherwise by
-  // the mount watcher). Screenshots keep the native-button path, which needs
-  // the drawer open and stores nothing locally.
+  // Bilibili's official editor. Screenshots keep the native-button path.
   const insertCardToNativeNote = useCallback(
     async (
       highlight: HighlightItem,
-      annotation?: UserAnnotation,
       withScreenshot: boolean = false
-    ): Promise<boolean> => {
+    ): Promise<NativeNoteInsertResult> => {
       setIsSyncing(true);
 
       try {
+        const itemKey = String(highlight.id ?? highlight.timestampStr ?? 'card');
+        const latestAnnotation =
+          bvid && cid
+            ? await getAnnotationForHighlight(bvid, cid, itemKey)
+            : undefined;
+        const html = formatCardToNoteHtml(highlight, latestAnnotation);
+
         if (withScreenshot) {
-          // Screenshots must go through Bilibili's native camera button, which
-          // only exists inside an already-open note drawer. Never auto-open it.
           if (!BiliNoteDomController.isNativeNoteOpen()) {
             onToast?.('✕ 带截图记入需要先打开 B站官方笔记');
-            return false;
+            return 'failed';
           }
-          const html = formatCardToNoteHtml(highlight, annotation);
           const anchorEl = BiliNoteDomController.insertHtmlAtCursor(html);
           if (!anchorEl) {
             onToast?.('✕ 未找到 B站笔记编辑器，请先打开笔记');
-            return false;
+            return 'failed';
           }
           const res = await BiliNoteDomController.triggerNativeScreenshotAt(anchorEl);
           const msg = res.success
-            ? `✓ 已将 [${highlight.timestampStr}] 观点与截图记入 B站笔记`
-            : `✓ 已将 [${highlight.timestampStr}] 观点记入 B站笔记`;
+            ? `✓ 已写入 B站笔记编辑器：[${highlight.timestampStr}] 观点与截图`
+            : `✓ 已写入 B站笔记编辑器：[${highlight.timestampStr}] 观点`;
           onToast?.(msg);
-          return true;
+          return 'injected';
         }
 
         if (!bvid || !cid) {
           onToast?.('✕ 未识别当前视频，无法暂存笔记');
-          return false;
+          return 'failed';
         }
 
-        const itemKey = String(highlight.id ?? highlight.timestampStr ?? 'card');
         if (await hasInjectedNote(bvid, cid, itemKey)) {
-          onToast?.('✓ 该段落已记入 B站笔记，无需重复注入');
-          return true;
+          onToast?.('✓ 该段落已写入 B站笔记编辑器，无需重复注入');
+          return 'injected';
         }
 
-        const html = formatCardToNoteHtml(highlight, annotation);
         const queued = await enqueueNoteSync({
           bvid,
           cid,
           itemKey,
           html,
-          annotationText: annotation?.content,
+          annotationText: latestAnnotation?.content,
         });
         if (!queued.enqueued) {
           const reason =
@@ -161,30 +182,63 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
               ? '本地待同步已达 100 条上限，请先打开 B站笔记'
               : '内容无效，无法暂存';
           onToast?.(`✕ ${reason}`);
-          return false;
+          return 'failed';
         }
 
+        await refreshPendingCount();
+        await BiliNoteDomController.ensureNativeNoteOpen();
         const injected = await flushNoteSyncQueue({
           inject: (fragment: string) => Boolean(BiliNoteDomController.insertHtmlAtCursor(fragment)),
           onToast,
         });
+        await refreshPendingCount();
+
         if (injected > 0) {
-          onToast?.(`✓ 已将 [${highlight.timestampStr}] 观点同步至 B站官方笔记`);
-        } else {
-          onToast?.('✓ 已存本地，打开 B站笔记后自动补写');
+          onToast?.(`✓ 已写入 B站笔记编辑器：[${highlight.timestampStr}] 观点`);
+          return 'injected';
         }
-        return true;
+        onToast?.('✓ 已存本地，打开 B站笔记后自动补写');
+        return 'queued';
       } catch (err: unknown) {
         const errMsg = err instanceof Error ? err.message : String(err);
         console.error('[BiliFlow] Insert to native note failed:', err);
         onToast?.(`✕ 记入失败: ${errMsg}`);
-        return false;
+        return 'failed';
       } finally {
         setIsSyncing(false);
       }
     },
-    [bvid, cid, onToast]
+    [bvid, cid, onToast, refreshPendingCount]
   );
+
+  const retryPendingSyncs = useCallback(async (): Promise<number> => {
+    if (!bvid || !cid) return 0;
+    setIsSyncing(true);
+    try {
+      const pending = await getPendingNoteSyncs(bvid, cid);
+      if (pending.length === 0) {
+        setPendingSyncCount(0);
+        return 0;
+      }
+
+      await BiliNoteDomController.ensureNativeNoteOpen();
+      const injected = await flushNoteSyncQueue({
+        inject: (fragment: string) => Boolean(BiliNoteDomController.insertHtmlAtCursor(fragment)),
+        onToast,
+      });
+      await refreshPendingCount();
+      if (injected === 0) {
+        onToast?.('仍待同步，请退出全屏或手动打开 B站笔记后重试');
+      }
+      return injected;
+    } catch (err: unknown) {
+      console.error('[BiliFlow] Retry pending note syncs failed:', err);
+      onToast?.('仍待同步，请退出全屏或手动打开 B站笔记后重试');
+      return 0;
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [bvid, cid, onToast, refreshPendingCount]);
 
   // One-click quick capture: screenshot + native timestamp blot via shortcut
   const quickCapture = useCallback(async () => {
@@ -194,13 +248,13 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
       if (res.success) {
         onToast?.(`✓ 已将 [${res.timestampStr || '当前画面'}] 截图与时间戳记入 B站笔记`);
         return true;
-      } else {
-        onToast?.(`✕ 记入失败: ${res.message || '未能唤起或写入 B站笔记'}`);
-        return false;
       }
-    } catch (err: any) {
+      onToast?.(`✕ 记入失败: ${res.message || '未能唤起或写入 B站笔记'}`);
+      return false;
+    } catch (err: unknown) {
       console.error('[BiliFlow] Quick capture failed:', err);
-      onToast?.(`✕ 记入失败: ${err?.message || '未知错误'}`);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      onToast?.(`✕ 记入失败: ${errMsg || '未知错误'}`);
       return false;
     }
   }, [onToast]);
@@ -212,11 +266,16 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
       setIsSyncing(true);
       try {
         const sessionResult = await BiliNoteDomController.withNativeNoteSession(async () => {
+          const annotationMap = new Map<string, UserAnnotation>();
+          if (bvid && cid) {
+            for (const h of summary.highlights) {
+              const ann = await getAnnotationForHighlight(bvid, cid, String(h.id));
+              if (ann) annotationMap.set(String(h.id), ann);
+            }
+          }
+
           const fullHtml = summary.highlights
-            .map((h) => {
-              const ann = getForHighlight(h.id);
-              return formatCardToNoteHtml(h, ann);
-            })
+            .map((h) => formatCardToNoteHtml(h, annotationMap.get(String(h.id))))
             .join('');
 
           const headerHtml = `<h2>⚡ 《${summary.title || '视频'}》AI 精读笔记</h2>${
@@ -242,12 +301,14 @@ export function useAnnotations({ bvid, cid, onToast }: UseAnnotationsProps) {
         setIsSyncing(false);
       }
     },
-    [getForHighlight, onToast]
+    [bvid, cid, onToast]
   );
 
   return {
     annotations,
     isSyncing,
+    pendingSyncCount,
+    retryPendingSyncs,
     saveAnnotation: handleSave,
     deleteAnnotation: handleDelete,
     getForHighlight,

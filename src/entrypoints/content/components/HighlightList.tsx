@@ -1,6 +1,10 @@
 import React from 'react';
 import { HighlightItem } from '../../../types';
-import { UserAnnotation, UserAnnotationType } from '../../../types/biliNote';
+import {
+  NativeNoteInsertResult,
+  UserAnnotation,
+  UserAnnotationType,
+} from '../../../types/biliNote';
 import { HighlightItemCard } from './HighlightItemCard';
 
 export interface HighlightListProps {
@@ -16,13 +20,13 @@ export interface HighlightListProps {
   getAnnotationForHighlight?: (id: string | number) => UserAnnotation | undefined;
   onSaveAnnotation?: (
     highlight: HighlightItem,
-    data: { type: UserAnnotationType; content: string }
-  ) => void;
-  onDeleteAnnotation?: (annotationId: string) => void;
+    data: { id?: string; type: UserAnnotationType; content: string }
+  ) => Promise<UserAnnotation | void> | void;
+  onDeleteAnnotation?: (annotationId: string) => Promise<boolean | void> | void;
   onInsertToNativeNote?: (
     highlight: HighlightItem,
     withScreenshot: boolean
-  ) => Promise<boolean | void> | void;
+  ) => Promise<NativeNoteInsertResult | void> | void;
   itemRefs: React.MutableRefObject<(HTMLDivElement | null)[]>;
 }
 
@@ -75,7 +79,7 @@ export const HighlightList: React.FC<HighlightListProps> = ({
               onSeekQuote={onSeekQuote}
               onSaveAnnotation={(data) => onSaveAnnotation?.(item, data)}
               onDeleteAnnotation={() => {
-                if (annotation) onDeleteAnnotation?.(annotation.id);
+                if (annotation) return onDeleteAnnotation?.(annotation.id);
               }}
               onInsertToNativeNote={
                 onInsertToNativeNote

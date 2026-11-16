@@ -1,15 +1,28 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockStorage: Record<string, any> = {};
+const mockStorage: Record<string, unknown> = {};
+type StorageListener = (
+  changes: Record<string, unknown>,
+  areaName: string
+) => void;
+const storageListeners = new Set<StorageListener>();
 
 vi.mock('wxt/browser', () => ({
   browser: {
     storage: {
       local: {
         get: vi.fn((key: string) => Promise.resolve({ [key]: mockStorage[key] })),
-        set: vi.fn((obj: Record<string, any>) => {
+        set: vi.fn((obj: Record<string, unknown>) => {
           Object.assign(mockStorage, obj);
           return Promise.resolve();
+        }),
+      },
+      onChanged: {
+        addListener: vi.fn((listener: StorageListener) => {
+          storageListeners.add(listener);
+        }),
+        removeListener: vi.fn((listener: StorageListener) => {
+          storageListeners.delete(listener);
         }),
       },
     },
@@ -22,14 +35,16 @@ import {
   hasInjectedNote,
   markInjected,
   markSynced,
+  subscribeNoteSyncQueueChange,
+  type NoteSyncQueueItem,
 } from '../src/services/noteSyncQueueService';
 
 const BVID = 'BV1testBvid';
 const CID = '123456';
 const KEY = 'biliflow_note_sync_queue';
 
-function rawQueue(): Record<string, any> {
-  return mockStorage[KEY] ?? {};
+function rawQueue(): Record<string, NoteSyncQueueItem> {
+  return (mockStorage[KEY] ?? {}) as Record<string, NoteSyncQueueItem>;
 }
 
 describe('noteSyncQueueService', () => {
@@ -37,7 +52,7 @@ describe('noteSyncQueueService', () => {
     for (const key of Object.keys(mockStorage)) {
       delete mockStorage[key];
     }
-    vi.clearAllMocks();
+    storageListeners.clear();
   });
 
   it('rejects empty input and any HTML containing an inline image', async () => {
@@ -150,5 +165,24 @@ describe('noteSyncQueueService', () => {
     await enqueueNoteSync({ bvid: BVID, cid: '999', itemKey: 'h1', html: '<p>b</p>' });
     expect(await getPendingNoteSyncs(BVID, CID)).toHaveLength(1);
     expect(await getPendingNoteSyncs(BVID, '999')).toHaveLength(1);
+  });
+
+  it('responds only to local note queue changes and unsubscribes cleanly', () => {
+    const listener = vi.fn();
+    const emit = (changes: Record<string, unknown>, areaName: string) => {
+      storageListeners.forEach((registered) => registered(changes, areaName));
+    };
+
+    const unsubscribe = subscribeNoteSyncQueueChange(listener);
+    emit({ unrelated: {} }, 'local');
+    emit({ [KEY]: {} }, 'sync');
+    expect(listener).not.toHaveBeenCalled();
+
+    emit({ [KEY]: {} }, 'local');
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    emit({ [KEY]: {} }, 'local');
+    expect(listener).toHaveBeenCalledTimes(1);
   });
 });

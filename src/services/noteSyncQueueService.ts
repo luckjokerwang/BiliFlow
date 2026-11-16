@@ -194,3 +194,26 @@ export async function markSynced(ids: string[]): Promise<void> {
   }
   await writeAll(all);
 }
+
+type StorageChangedListener = Parameters<
+  typeof browser.storage.onChanged.addListener
+>[0];
+
+/** Notifies the HUD when the local-first sync queue changes. */
+export function subscribeNoteSyncQueueChange(listener: () => void): () => void {
+  const onChanged = browser?.storage?.onChanged;
+  if (!onChanged?.addListener || !onChanged.removeListener) {
+    return () => {};
+  }
+
+  const handleChange: StorageChangedListener = (changes, areaName) => {
+    if (areaName === 'local' && changes[STORAGE_KEY]) {
+      listener();
+    }
+  };
+
+  onChanged.addListener(handleChange);
+  return () => {
+    onChanged.removeListener(handleChange);
+  };
+}

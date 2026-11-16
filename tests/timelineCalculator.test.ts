@@ -4,8 +4,9 @@ import {
   calculateTimelineSegments,
   findActiveHighlightIndex,
   findActiveQuoteIndex,
+  findActiveTranscriptIndex,
 } from '../src/utils/timelineCalculator';
-import { HighlightItem } from '../src/types';
+import { BiliRawSubtitleItem, HighlightItem } from '../src/types';
 
 describe('calculateTimelineMarkers', () => {
   const mockHighlights: HighlightItem[] = [
@@ -297,5 +298,28 @@ describe('calculateTimelineSegments', () => {
     expect(segments[0].index).toBe(1);
     expect(segments[0].startSec).toBe(0);
     expect(segments[0].endSec).toBe(60);
+  });
+});
+
+describe('findActiveTranscriptIndex', () => {
+  const items: BiliRawSubtitleItem[] = [
+    { from: 0, to: 2, content: '第一句' },
+    { from: 5, to: 8, content: '第二句' },
+    { from: 8, to: 10, content: '第三句' },
+    { from: 8, to: 11, content: '并列句' },
+  ];
+
+  it('returns -1 for empty input, NaN time, or time before the first sentence', () => {
+    expect(findActiveTranscriptIndex([], 5)).toBe(-1);
+    expect(findActiveTranscriptIndex(items, Number.NaN)).toBe(-1);
+    expect(findActiveTranscriptIndex(items, -1)).toBe(-1);
+  });
+
+  it('keeps the previous sentence active during a gap and selects the last equal start', () => {
+    expect(findActiveTranscriptIndex(items, 0)).toBe(0);
+    expect(findActiveTranscriptIndex(items, 3)).toBe(0);
+    expect(findActiveTranscriptIndex(items, 5)).toBe(1);
+    expect(findActiveTranscriptIndex(items, 8)).toBe(3);
+    expect(findActiveTranscriptIndex(items, 100)).toBe(3);
   });
 });

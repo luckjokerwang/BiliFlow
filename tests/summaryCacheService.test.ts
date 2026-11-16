@@ -70,6 +70,7 @@ describe('summaryCacheService', () => {
       { id: 1, timestamp: 10, timestampStr: '00:10', title: '节点1', keyPoint: '要点1' },
     ],
     createdAt: 1000,
+    schemaVersion: 2,
   };
 
   const mockSummary2: VideoSummaryResult = {
@@ -81,6 +82,7 @@ describe('summaryCacheService', () => {
       { id: 1, timestamp: 20, timestampStr: '00:20', title: '节点2', keyPoint: '要点2' },
     ],
     createdAt: 2000,
+    schemaVersion: 2,
   };
 
   const mockSummary3: VideoSummaryResult = {
@@ -92,6 +94,7 @@ describe('summaryCacheService', () => {
       { id: 1, timestamp: 30, timestampStr: '00:30', title: '节点3', keyPoint: '要点3' },
     ],
     createdAt: 3000,
+    schemaVersion: 2,
   };
 
   describe('estimateObjectSize', () => {
@@ -229,6 +232,21 @@ describe('summaryCacheService', () => {
       expect(valid).toBe(true);
     });
 
+
+    it('returns false for legacy summaries without schemaVersion 2', () => {
+      const legacy = {
+        ...mockSummary1,
+        schemaVersion: undefined,
+      } as unknown as VideoSummaryResult;
+
+      expect(
+        isCachedSummaryValid(legacy, {
+          bvid: 'BV1xx411c7mD',
+          cid: '10001',
+          title: '视频测试1',
+        })
+      ).toBe(false);
+    });
     it('returns false if bvid or cid does not match', () => {
       expect(
         isCachedSummaryValid(mockSummary1, {
@@ -281,6 +299,7 @@ describe('summaryCacheService', () => {
           { id: 4, timestamp: 126, timestampStr: '02:06', title: '建议', keyPoint: '...' },
         ],
         createdAt: 1000,
+        schemaVersion: 2,
       };
 
       // Video duration is 1972s (32:52)

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { formatSeconds, parseTimestamp } from '../src/utils/timeParser';
+import {
+  extractDescriptionTimestamps,
+  formatSeconds,
+  parseTimestamp,
+} from '../src/utils/timeParser';
 
 describe('timeParser', () => {
   describe('formatSeconds', () => {
@@ -42,5 +46,30 @@ describe('timeParser', () => {
       expect(parseTimestamp('abc')).toBe(0);
       expect(parseTimestamp('02:invalid')).toBe(0);
     });
+  });
+});
+
+describe('extractDescriptionTimestamps', () => {
+  it('extracts mm:ss lines with brackets, separators, sorting and dedupe', () => {
+    const description = [
+      '02:00 - 重点',
+      '00:00 开场',
+      '[01:30] 背景',
+      '01:30 背景',
+      '没有时间戳的说明',
+    ].join('\n');
+
+    expect(extractDescriptionTimestamps(description)).toEqual([
+      { seconds: 0, title: '开场' },
+      { seconds: 90, title: '背景' },
+      { seconds: 120, title: '重点' },
+    ]);
+  });
+
+  it('supports hh:mm:ss and drops points beyond the video duration', () => {
+    const description = '01:02:03 长视频结尾\n01:10:00 超出视频';
+    expect(extractDescriptionTimestamps(description, 3725)).toEqual([
+      { seconds: 3723, title: '长视频结尾' },
+    ]);
   });
 });

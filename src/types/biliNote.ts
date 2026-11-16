@@ -6,6 +6,9 @@ import { VideoSummaryResult } from './index';
 
 export type UserAnnotationType = 'insight' | 'question' | 'action' | 'keypoint';
 
+/** Outcome of a "记入笔记" action: injected into the editor, queued locally, or failed. */
+export type NativeNoteInsertResult = 'injected' | 'queued' | 'failed';
+
 export interface UserAnnotation {
   id: string;
   timestamp: number;          // In seconds

@@ -17,6 +17,7 @@ describe('exportUtils', () => {
       { id: 2, timestamp: 245, timestampStr: '04:05', title: '分布式条件类型', keyPoint: '联合类型触发分发的条件与修饰符。' },
     ],
     createdAt: 1600000000000,
+    schemaVersion: 2,
   };
 
   describe('formatSummaryAsMarkdown', () => {

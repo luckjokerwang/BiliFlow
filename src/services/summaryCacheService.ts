@@ -159,6 +159,7 @@ export function isCachedSummaryValid(
   }
 ): boolean {
   if (!cached || !cached.bvid || !cached.cid) return false;
+  if (cached.schemaVersion !== 2) return false;
   if (cached.bvid !== currentVideo.bvid || cached.cid !== currentVideo.cid) return false;
 
   // Must contain highlights

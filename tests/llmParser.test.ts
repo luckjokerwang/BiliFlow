@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   parseLLMSummaryOutput,
+  parseMapPhaseOutput,
   cleanRawLLMText,
   repairTruncatedJson,
 } from '../src/utils/llmParser';
@@ -147,5 +148,95 @@ describe('llmParser', () => {
 
   it('throws error when JSON is invalid and irreparable', () => {
     expect(() => parseLLMSummaryOutput('invalid string without json', meta)).toThrow();
+  });
+});
+
+describe('structured artifacts parsing', () => {
+  const meta = {
+    bvid: 'BV1Artifacts',
+    cid: '999',
+    title: '结构化输出测试',
+  };
+
+  it('parses valid artifacts, filters malformed items and stamps schemaVersion 2', () => {
+    const raw = JSON.stringify({
+      oneSentenceSummary: '结构化总结。',
+      highlights: [{ timestamp: '00:10', title: '要点', keyPoint: '内容' }],
+      glossary: [
+        { term: 'Token', definition: '模型处理文本的基本单位' },
+        { term: '', definition: '空术语' },
+        { term: '缺定义' },
+        'invalid glossary entry',
+      ],
+      actionableTakeaways: ['打开设置并配置 Key', '', '   ', 42],
+      punchlineQuotes: [
+        { timestamp: '00:10', content: '  字幕原文  ' },
+        { timestamp: '00:20', content: '' },
+        'invalid quote',
+      ],
+    });
+
+    const result = parseLLMSummaryOutput(raw, meta);
+    expect(result.schemaVersion).toBe(2);
+    expect(result.glossary).toEqual([
+      { term: 'Token', definition: '模型处理文本的基本单位' },
+    ]);
+    expect(result.actionableTakeaways).toEqual(['打开设置并配置 Key']);
+    expect(result.punchlineQuotes).toEqual([
+      { timestamp: 10, timestampStr: '00:10', content: '字幕原文' },
+    ]);
+  });
+
+  it('returns empty artifact arrays and schemaVersion 2 when fields are absent', () => {
+    const raw = JSON.stringify({
+      oneSentenceSummary: '最小总结。',
+      highlights: [{ timestamp: '00:00', title: '开场' }],
+    });
+
+    const result = parseLLMSummaryOutput(raw, meta);
+    expect(result.glossary).toEqual([]);
+    expect(result.actionableTakeaways).toEqual([]);
+    expect(result.punchlineQuotes).toEqual([]);
+    expect(result.schemaVersion).toBe(2);
+  });
+});
+
+describe('parseMapPhaseOutput', () => {
+  it('parses local summaries, key points and verbatim quote candidates', () => {
+    const result = parseMapPhaseOutput(
+      JSON.stringify({
+        summary: '本窗口讲解缓存策略。',
+        keyPoints: [
+          { timestamp: '10:05', text: '先写入本地队列' },
+          { timestamp: '10:30', text: '' },
+          'invalid point',
+        ],
+        punchlineQuotes: [
+          { timestamp: '10:05', content: '  先写入本地队列  ' },
+          { timestamp: '10:30', content: '' },
+        ],
+      })
+    );
+
+    expect(result.summary).toBe('本窗口讲解缓存策略。');
+    expect(result.keyPoints).toEqual([
+      { timestamp: 605, timestampStr: '10:05', text: '先写入本地队列' },
+    ]);
+    expect(result.punchlineQuotes).toEqual([
+      {
+        timestamp: 605,
+        timestampStr: '10:05',
+        content: '先写入本地队列',
+      },
+    ]);
+  });
+
+  it('allows empty local content but rejects malformed JSON', () => {
+    expect(
+      parseMapPhaseOutput(
+        JSON.stringify({ summary: '', keyPoints: [], punchlineQuotes: [] })
+      )
+    ).toEqual({ summary: '', keyPoints: [], punchlineQuotes: [] });
+    expect(() => parseMapPhaseOutput('not json')).toThrow();
   });
 });

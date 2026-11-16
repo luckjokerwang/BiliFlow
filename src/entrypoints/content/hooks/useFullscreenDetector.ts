@@ -6,6 +6,7 @@ export interface UseFullscreenDetectorProps {
   settings: UserSettings;
   isOpen: boolean;
   onToggleOpen: () => void;
+  isTranscriptMode?: boolean;
   onClose: () => void;
   onPrevHighlight?: () => void;
   onNextHighlight?: () => void;
@@ -50,6 +51,7 @@ export function matchesShortcut(e: KeyboardEvent, shortcutStr?: string): boolean
 export function useFullscreenDetector({
   settings,
   isOpen,
+  isTranscriptMode,
   onToggleOpen,
   onClose,
   onPrevHighlight,
@@ -63,10 +65,14 @@ export function useFullscreenDetector({
   // Fullscreen change tracking
   useEffect(() => {
     const checkFullscreen = () => {
+      const fullscreenDocument = document as Document & {
+        webkitFullscreenElement?: Element | null;
+        mozFullScreenElement?: Element | null;
+      };
       const isFs = Boolean(
-        document.fullscreenElement ||
-          (document as any).webkitFullscreenElement ||
-          (document as any).mozFullScreenElement ||
+        fullscreenDocument.fullscreenElement ||
+          fullscreenDocument.webkitFullscreenElement ||
+          fullscreenDocument.mozFullScreenElement ||
           document.querySelector('.bpx-player-container[data-screen="web"]') ||
           document.querySelector('.bpx-player-container[data-screen="full"]')
       );
@@ -125,6 +131,11 @@ export function useFullscreenDetector({
         return;
       }
 
+      // Highlight-specific navigation is not meaningful while the full transcript is shown.
+      if (isTranscriptMode) {
+        return;
+      }
+
       // 4. Highlight navigation (J / K)
       if (matchesShortcut(e, settings.shortcutPrevNode)) {
         e.preventDefault();
@@ -173,6 +184,7 @@ export function useFullscreenDetector({
   }, [
     settings,
     isOpen,
+    isTranscriptMode,
     onToggleOpen,
     onClose,
     onPrevHighlight,

@@ -2,7 +2,10 @@ import { defineBackground } from 'wxt/sandbox';
 import { browser } from 'wxt/browser';
 import { ExtensionMessage, ExtensionResponse, UserSettings, ResolvedVideoInfo } from '../types';
 import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../constants';
-import { fetchBilibiliSubtitles } from '../services/bilibiliApi';
+import {
+  fetchBilibiliSubtitles,
+  fetchVideoPreflightMetadata,
+} from '../services/bilibiliApi';
 import {
   generateVideoSummary,
   fetchRemoteModels,
@@ -108,6 +111,7 @@ export default defineBackground(() => {
             aid,
             title,
             duration,
+            description: String(json.data.desc || ''),
           };
 
           return { success: true, data: resolved };
@@ -119,7 +123,7 @@ export default defineBackground(() => {
         }
 
         case 'GENERATE_SUMMARY': {
-          const { bvid, cid, title, subtitles } = message.payload;
+          const { bvid, cid, title, subtitles, aid, durationSec, description } = message.payload;
           if (!Array.isArray(subtitles) || subtitles.length === 0) {
             return {
               success: false,
@@ -144,11 +148,21 @@ export default defineBackground(() => {
             (p) => p.apiKey && p.apiKey.trim().length > 0 && p.id !== activeProvider.id
           );
 
+          const preflight = await fetchVideoPreflightMetadata({
+            bvid,
+            cid,
+            aid,
+            description,
+            durationSec,
+          });
+
           const summary = await generateVideoSummary({
             bvid,
             cid,
             title,
             subtitles,
+            durationSec,
+            preflight,
             provider: activeProvider,
             model: settings.activeModel || activeProvider.selectedModel,
             fallbackProvider,

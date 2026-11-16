@@ -1,4 +1,8 @@
-import { BiliRawSubtitleItem, TranscriptChunk } from '../types';
+import {
+  BiliRawSubtitleItem,
+  TranscriptChunk,
+  TranscriptWindow,
+} from '../types';
 import { formatSeconds } from './timeParser';
 
 export interface ChunkOptions {
@@ -144,4 +148,54 @@ export function formatTranscriptForPrompt(
   return fittedChunks
     .map((chunk) => `[${chunk.timestampStr}] ${chunk.text}`)
     .join('\n');
+}
+
+/**
+ * Partitions full subtitles into fixed temporal windows for Map-Reduce.
+ * Every non-empty sentence is preserved; unlike compressChunksToFit this
+ * function never downsamples or truncates the transcript.
+ */
+export function partitionSubtitlesIntoWindows(
+  items: BiliRawSubtitleItem[],
+  windowSec = 600
+): TranscriptWindow[] {
+  if (
+    !Array.isArray(items) ||
+    items.length === 0 ||
+    !Number.isFinite(windowSec) ||
+    windowSec <= 0
+  ) {
+    return [];
+  }
+
+  const buckets = new Map<number, BiliRawSubtitleItem[]>();
+  for (const item of [...items].sort((a, b) => a.from - b.from)) {
+    if (!item || typeof item.content !== 'string' || !item.content.trim()) {
+      continue;
+    }
+    const bucketIndex = Math.floor(Math.max(0, item.from) / windowSec);
+    const bucket = buckets.get(bucketIndex) || [];
+    bucket.push(item);
+    buckets.set(bucketIndex, bucket);
+  }
+
+  return [...buckets.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([bucketIndex, windowItems]) => {
+      const startTime = bucketIndex * windowSec;
+      const lastEnd = windowItems.reduce(
+        (maxEnd, item) =>
+          Number.isFinite(item.to) && item.to > maxEnd ? item.to : maxEnd,
+        startTime
+      );
+      return {
+        startTime,
+        endTime: lastEnd,
+        timestampStr: `${formatSeconds(startTime)}-${formatSeconds(lastEnd)}`,
+        items: windowItems,
+        text: windowItems
+          .map((item) => `[${formatSeconds(item.from)}] ${item.content}`)
+          .join('\n'),
+      };
+    });
 }

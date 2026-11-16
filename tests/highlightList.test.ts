@@ -2,6 +2,39 @@ import { describe, it, expect, vi } from 'vitest';
 import React from 'react';
 import { HighlightList } from '../src/entrypoints/content/components/HighlightList';
 import { HighlightItem } from '../src/types';
+import { NativeNoteInsertResult } from '../src/types/biliNote';
+
+type CardInsert = (
+  withScreenshot: boolean
+) => Promise<NativeNoteInsertResult | void> | void;
+
+type ListInsert = (
+  highlight: HighlightItem,
+  withScreenshot: boolean
+) => Promise<NativeNoteInsertResult | void> | void;
+
+type TestTree = {
+  props: {
+    children: [
+      unknown,
+      {
+        props: {
+          children: Array<{ props: { onInsertToNativeNote?: CardInsert } }>;
+        };
+      }
+    ];
+  };
+};
+
+function getWrappedCallback(
+  element: React.ReactNode
+): CardInsert | undefined {
+  if (!element || !React.isValidElement(element)) {
+    throw new Error('Expected HighlightList to render');
+  }
+  const tree = element as unknown as TestTree;
+  return tree.props.children[1].props.children[0].props.onInsertToNativeNote;
+}
 
 describe('HighlightList onInsertToNativeNote callback wrapper', () => {
   const mockHighlights: HighlightItem[] = [
@@ -15,11 +48,8 @@ describe('HighlightList onInsertToNativeNote callback wrapper', () => {
     },
   ];
 
-  it('correctly propagates boolean true from onInsertToNativeNote callback', async () => {
-    const mockOnInsert = vi.fn().mockResolvedValue(true);
-    const itemRefs = { current: [] };
-
-    const element = HighlightList({
+  const renderList = (onInsertToNativeNote?: ListInsert) =>
+    HighlightList({
       isDark: false,
       highlights: mockHighlights,
       selectedIndex: 0,
@@ -29,68 +59,42 @@ describe('HighlightList onInsertToNativeNote callback wrapper', () => {
       onJump: vi.fn(),
       onToggleQuoteExpand: vi.fn(),
       onSeekQuote: vi.fn(),
-      onInsertToNativeNote: mockOnInsert,
-      itemRefs,
+      onInsertToNativeNote,
+      itemRefs: { current: [] },
     });
 
-    expect(element).not.toBeNull();
-    // In the rendered component tree, the child HighlightItemCard receives onInsertToNativeNote
-    const cardElement = (element as any).props.children[1].props.children[0];
-    const wrappedCallback = cardElement.props.onInsertToNativeNote;
+  it('propagates injected result from onInsertToNativeNote', async () => {
+    const mockOnInsert = vi.fn().mockResolvedValue('injected');
+    const wrappedCallback = getWrappedCallback(renderList(mockOnInsert));
 
     expect(typeof wrappedCallback).toBe('function');
-    const result = await wrappedCallback(true);
+    const result = await wrappedCallback?.(true);
 
     expect(mockOnInsert).toHaveBeenCalledWith(mockHighlights[0], true);
-    expect(result).toBe(true);
+    expect(result).toBe('injected');
   });
 
-  it('correctly propagates boolean false so UI micro-feedback handles error state properly', async () => {
-    const mockOnInsert = vi.fn().mockResolvedValue(false);
-    const itemRefs = { current: [] };
+  it('propagates failed result so UI micro-feedback handles error state', async () => {
+    const mockOnInsert = vi.fn().mockResolvedValue('failed');
+    const wrappedCallback = getWrappedCallback(renderList(mockOnInsert));
 
-    const element = HighlightList({
-      isDark: false,
-      highlights: mockHighlights,
-      selectedIndex: 0,
-      expandedQuoteIds: new Set(),
-      enableNumberKeySeek: true,
-      currentPlaybackSec: 0,
-      onJump: vi.fn(),
-      onToggleQuoteExpand: vi.fn(),
-      onSeekQuote: vi.fn(),
-      onInsertToNativeNote: mockOnInsert,
-      itemRefs,
-    });
-
-    const cardElement = (element as any).props.children[1].props.children[0];
-    const wrappedCallback = cardElement.props.onInsertToNativeNote;
-
-    const result = await wrappedCallback(false);
+    const result = await wrappedCallback?.(false);
 
     expect(mockOnInsert).toHaveBeenCalledWith(mockHighlights[0], false);
-    // Crucial regression check: must be false, NOT undefined (which would fool `res !== false`)
-    expect(result).toBe(false);
+    expect(result).toBe('failed');
+  });
+
+  it('propagates queued result without collapsing it to undefined', async () => {
+    const mockOnInsert = vi.fn().mockResolvedValue('queued');
+    const wrappedCallback = getWrappedCallback(renderList(mockOnInsert));
+
+    const result = await wrappedCallback?.(false);
+
+    expect(result).toBe('queued');
   });
 
   it('returns undefined if onInsertToNativeNote is not provided', () => {
-    const itemRefs = { current: [] };
-
-    const element = HighlightList({
-      isDark: false,
-      highlights: mockHighlights,
-      selectedIndex: 0,
-      expandedQuoteIds: new Set(),
-      enableNumberKeySeek: true,
-      currentPlaybackSec: 0,
-      onJump: vi.fn(),
-      onToggleQuoteExpand: vi.fn(),
-      onSeekQuote: vi.fn(),
-      onInsertToNativeNote: undefined,
-      itemRefs,
-    });
-
-    const cardElement = (element as any).props.children[1].props.children[0];
-    expect(cardElement.props.onInsertToNativeNote).toBeUndefined();
+    const wrappedCallback = getWrappedCallback(renderList(undefined));
+    expect(wrappedCallback).toBeUndefined();
   });
 });

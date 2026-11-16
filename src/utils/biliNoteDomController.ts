@@ -93,13 +93,16 @@ export class BiliNoteDomController {
 
       fireClick();
 
-      // Poll until .ql-editor is mounted in DOM (up to 4 seconds)
-      for (let i = 0; i < 40; i++) {
-        await new Promise((r) => setTimeout(r, 100));
+      // Exponential backoff up to 4s: avoids hammering Bilibili's conditional drawer DOM.
+      let elapsedMs = 0;
+      let replayed = false;
+      for (const delayMs of [100, 200, 400, 800, 1200, 1300]) {
+        await new Promise((r) => setTimeout(r, delayMs));
+        elapsedMs += delayMs;
         if (this.isNativeNoteOpen()) return true;
-        // Re-fire at 1s in case initial click was ignored during layout initialization
-        if (i === 10) {
+        if (!replayed && elapsedMs >= 1000) {
           fireClick();
+          replayed = true;
         }
       }
     }

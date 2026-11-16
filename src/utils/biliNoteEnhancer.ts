@@ -25,19 +25,25 @@ export function injectBiliNoteMarkdownStyles(): () => void {
        BiliFlow Enhanced Markdown Styles for Bilibili Native Notes (.ql-editor)
        ========================================================================== */
 
-    /* 1. Global Editor Typography & Clean Spacing */
-    .bili-note-panel .ql-editor,
-    .bili-note .ql-editor {
+    /* Variables + fallback work even if Bilibili renames its note panel. */
+    .ql-editor {
+      --biliflow-note-accent: #00aeec;
+      --biliflow-note-accent-soft: rgba(0, 174, 236, 0.12);
+      --biliflow-note-code-color: #ea580c;
+      --biliflow-note-border: rgba(125, 125, 125, 0.2);
+    }
+
+    :is(.bili-note-panel, .bili-note) .ql-editor,
+    .ql-editor {
       line-height: 1.68 !important;
       font-size: 13.5px !important;
       letter-spacing: 0.01em !important;
       color: inherit;
     }
 
-    /* 2. Notion/GitHub Style Blockquotes (引用块美化) */
-    .bili-note-panel .ql-editor blockquote,
-    .bili-note .ql-editor blockquote {
-      border-left: 3.5px solid #00aeec !important;
+    :is(.bili-note-panel, .bili-note) .ql-editor blockquote,
+    .ql-editor blockquote {
+      border-left: 3.5px solid var(--biliflow-note-accent) !important;
       background: rgba(0, 174, 236, 0.06) !important;
       border-radius: 0 8px 8px 0 !important;
       padding: 6px 12px !important;
@@ -47,17 +53,16 @@ export function injectBiliNoteMarkdownStyles(): () => void {
       font-style: normal !important;
     }
 
-    /* 3. Interactive Clickable Timestamp Tag (蓝旗时间戳胶囊徽标) */
-    .bili-note-panel .ql-editor .biliflow-timestamp,
-    .bili-note .ql-editor .biliflow-timestamp {
+    :is(.bili-note-panel, .bili-note) .ql-editor .biliflow-timestamp,
+    .ql-editor .biliflow-timestamp {
       display: inline-flex !important;
       align-items: center !important;
       gap: 3px !important;
       padding: 1px 6px !important;
       margin-right: 4px !important;
       border-radius: 5px !important;
-      background: rgba(0, 174, 236, 0.12) !important;
-      color: #00aeec !important;
+      background: var(--biliflow-note-accent-soft) !important;
+      color: var(--biliflow-note-accent) !important;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
       font-size: 11px !important;
       font-weight: 700 !important;
@@ -67,48 +72,46 @@ export function injectBiliNoteMarkdownStyles(): () => void {
       transition: all 0.18s cubic-bezier(0.2, 0, 0, 1) !important;
     }
 
-    .bili-note-panel .ql-editor .biliflow-timestamp:hover,
-    .bili-note .ql-editor .biliflow-timestamp:hover {
-      background: #00aeec !important;
+    :is(.bili-note-panel, .bili-note) .ql-editor .biliflow-timestamp:hover,
+    .ql-editor .biliflow-timestamp:hover {
+      background: var(--biliflow-note-accent) !important;
       color: #ffffff !important;
       transform: translateY(-1px) scale(1.03) !important;
       box-shadow: 0 2px 6px rgba(0, 174, 236, 0.35) !important;
     }
 
-    /* 4. Refined Headings Hierarchy (标题阶梯排版) */
-    .bili-note-panel .ql-editor h1,
-    .bili-note .ql-editor h1 {
+    :is(.bili-note-panel, .bili-note) .ql-editor h1,
+    .ql-editor h1 {
       font-size: 1.35em !important;
       font-weight: 700 !important;
       margin: 14px 0 6px 0 !important;
       padding-bottom: 4px !important;
-      border-bottom: 1px solid rgba(125, 125, 125, 0.2) !important;
+      border-bottom: 1px solid var(--biliflow-note-border) !important;
     }
 
-    .bili-note-panel .ql-editor h2,
-    .bili-note .ql-editor h2 {
+    :is(.bili-note-panel, .bili-note) .ql-editor h2,
+    .ql-editor h2 {
       font-size: 1.2em !important;
       font-weight: 700 !important;
       margin: 12px 0 5px 0 !important;
-      color: #00aeec !important;
+      color: var(--biliflow-note-accent) !important;
     }
 
-    .bili-note-panel .ql-editor h3,
-    .bili-note .ql-editor h3 {
+    :is(.bili-note-panel, .bili-note) .ql-editor h3,
+    .ql-editor h3 {
       font-size: 1.08em !important;
       font-weight: 600 !important;
       margin: 10px 0 4px 0 !important;
     }
 
-    /* 5. Inline Code & Code blocks (等宽代码胶囊) */
-    .bili-note-panel .ql-editor code,
-    .bili-note .ql-editor code {
+    :is(.bili-note-panel, .bili-note) .ql-editor code,
+    .ql-editor code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
       background: rgba(125, 125, 125, 0.12) !important;
       padding: 1.5px 5px !important;
       border-radius: 4px !important;
       font-size: 0.9em !important;
-      color: #ea580c !important;
+      color: var(--biliflow-note-code-color) !important;
     }
   `;
 

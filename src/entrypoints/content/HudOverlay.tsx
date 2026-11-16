@@ -26,6 +26,8 @@ import { HUDHeader } from './components/HUDHeader';
 import { HighlightList } from './components/HighlightList';
 import { ManualTriggerPanel } from './components/ManualTriggerPanel';
 import { HUDToast } from './components/HUDToast';
+import { TranscriptStream } from './components/TranscriptStream';
+import { SummaryArtifacts } from './components/SummaryArtifacts';
 
 export const HudOverlay: React.FC = () => {
   const { settings, isReady } = useSettings();
@@ -33,6 +35,7 @@ export const HudOverlay: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string | number>>(new Set());
+  const [viewMode, setViewMode] = useState<'summary' | 'transcript'>('summary');
 
   // Scroll tracking refs
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -57,14 +60,17 @@ export const HudOverlay: React.FC = () => {
     error,
     isManualMode,
     videoInfo,
+    subtitles,
+    transcriptLoading,
+    transcriptError,
     triggerSummary,
     retrySummary,
+    retryTranscript,
   } = useAutoSummary({
     settings,
     onToast: showToast,
   });
 
-  // Hook 2: User Annotations & Bilibili Native Note Integration
   const {
     annotations,
     saveAnnotation,
@@ -73,9 +79,11 @@ export const HudOverlay: React.FC = () => {
     insertCardToNativeNote,
     exportFullToNativeNote,
     quickCapture,
+    pendingSyncCount,
+    retryPendingSyncs,
   } = useAnnotations({
-    bvid: summary?.bvid,
-    cid: summary?.cid,
+    bvid: videoInfo?.bvid,
+    cid: videoInfo?.cid,
     onToast: showToast,
   });
 
@@ -135,7 +143,7 @@ export const HudOverlay: React.FC = () => {
 
   // Focus and center current active highlight whenever HUD is opened or shown
   useEffect(() => {
-    if (isOpen && summary?.highlights && summary.highlights.length > 0 && activeHighlightIndex >= 0) {
+    if (isOpen && viewMode === 'summary' && summary?.highlights && summary.highlights.length > 0 && activeHighlightIndex >= 0) {
       setSelectedIndex(activeHighlightIndex);
       // Double RAF ensures newly mounted DOM nodes have finished layout & measurement
       let cancelled = false;
@@ -151,23 +159,24 @@ export const HudOverlay: React.FC = () => {
         cancelled = true;
       };
     }
-  }, [isOpen, summary?.highlights?.length, scrollToActiveItem]);
+  }, [isOpen, viewMode, activeHighlightIndex, summary?.highlights?.length, scrollToActiveItem]);
 
   // Sync selected index and smoothly follow active highlight node during playback
   useEffect(() => {
     if (activeHighlightIndex >= 0 && summary?.highlights && summary.highlights.length > 0) {
       setSelectedIndex(activeHighlightIndex);
       // Auto-follow during natural playback if user isn't actively manual-scrolling
-      if (isOpen && !isUserManualActionActive()) {
+      if (isOpen && viewMode === 'summary' && !isUserManualActionActive()) {
         scrollToActiveItem(activeHighlightIndex, false, 'smooth');
       }
     }
-  }, [activeHighlightIndex, summary, scrollToActiveItem, isUserManualActionActive, isOpen]);
+  }, [activeHighlightIndex, summary, scrollToActiveItem, isUserManualActionActive, isOpen, viewMode]);
 
   // Recalibrate scroll view when returning to tab
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (
+        viewMode === 'summary' &&
         document.visibilityState === 'visible' &&
         isOpen &&
         summary?.highlights &&
@@ -184,7 +193,7 @@ export const HudOverlay: React.FC = () => {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [isOpen, activeHighlightIndex, summary, scrollToActiveItem]);
+  }, [isOpen, viewMode, activeHighlightIndex, summary, scrollToActiveItem]);
 
   // Jump to specific highlight
   const handleJump = useCallback(
@@ -222,6 +231,7 @@ export const HudOverlay: React.FC = () => {
   useFullscreenDetector({
     settings,
     isOpen,
+    isTranscriptMode: viewMode === 'transcript',
     onToggleOpen: () => {
       window.dispatchEvent(new CustomEvent('biliflow:ensure-mount'));
       setIsOpen((prev) => !prev);
@@ -259,11 +269,12 @@ export const HudOverlay: React.FC = () => {
     },
   });
 
-  // Reset selected index & expanded quotes when switching to a new video
+  // Reset selected index, expanded quotes and view mode when switching videos.
   useEffect(() => {
     setSelectedIndex(0);
     setExpandedQuoteIds(new Set());
-  }, [summary?.bvid, summary?.cid]);
+    setViewMode('summary');
+  }, [videoInfo?.bvid, videoInfo?.cid]);
 
   // Memoize timeline markers and segments to prevent re-generating fresh object references on every 2s tick
   const timelineMarkers = useMemo(() => {
@@ -364,145 +375,182 @@ export const HudOverlay: React.FC = () => {
           {/* Header */}
           <HUDHeader
             isDark={isDark}
-            loading={loading}
+            loading={viewMode === 'summary' ? loading : transcriptLoading}
             isFallbackUsed={summary?.isFallbackUsed}
             usedModel={summary?.usedModel}
             hasSummary={Boolean(summary?.highlights?.length)}
             shortcut={settings.shortcutToggle || 'Alt+S'}
-            onRefresh={() => retrySummary()}
+            viewMode={viewMode}
+            onViewModeChange={setViewMode}
+            onRefresh={() => {
+              if (viewMode === 'transcript') {
+                void retryTranscript();
+              } else {
+                void retrySummary();
+              }
+            }}
             onOpenOptions={handleOpenOptions}
             onClose={() => setIsOpen(false)}
             onCopyMarkdown={handleCopyMarkdown}
             onExportToBiliNote={() => summary && exportFullToNativeNote(summary)}
+            pendingNoteSyncCount={pendingSyncCount}
+            onRetryNoteSync={() => {
+              void retryPendingSyncs();
+            }}
           />
 
           {/* Content Body */}
-          <div
-            ref={scrollContainerRef}
-            onWheel={markUserManualAction}
-            onTouchMove={markUserManualAction}
-            className="flex-1 min-h-0 p-4 overflow-y-auto scroll-smooth space-y-3.5"
-          >
-            {/* Loading State */}
-            {loading && (
-              <div className="py-10 flex flex-col items-center justify-center gap-3 text-slate-400">
-                <Loader2 className="w-7 h-7 animate-spin text-sky-500" />
-                <p className="text-xs font-medium tracking-wide">
-                  正在智能提炼视频核心亮点...
-                </p>
-              </div>
-            )}
-
-            {/* Error State */}
-            {error && !loading && (
-              <div
-                className={`p-3.5 rounded-xl border flex items-start gap-2.5 ${
-                  isDark
-                    ? 'bg-rose-950/40 border-rose-800/50 text-rose-200'
-                    : 'bg-rose-50 border-rose-200 text-rose-800'
-                }`}
-              >
-                <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                <div className="text-xs space-y-1.5 min-w-0 flex-1">
-                  <p className="font-semibold text-rose-500">无法生成总结</p>
-                  <p className="opacity-90 leading-relaxed break-words">{error}</p>
-                  {error.includes('刷新') ? (
-                    <button
-                      type="button"
-                      onClick={() => window.location.reload()}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500 text-white text-[11px] font-semibold transition-all hover:bg-sky-400 cursor-pointer mt-1"
-                    >
-                      <RotateCcw className="w-3 h-3" /> 立即按 F5 刷新网页
-                    </button>
-                  ) : error.includes('字幕') ? (
-                    <div className="pt-1 text-[11px] text-slate-400 flex items-center gap-1">
-                      <FileText className="w-3 h-3 text-slate-400" />
-                      <span>提示：该视频没有外挂字幕/AI字幕，仅有UP压制的画面硬字幕</span>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={handleOpenOptions}
-                      className="inline-flex items-center gap-1 text-[11px] text-sky-500 hover:underline cursor-pointer pt-0.5 font-semibold"
-                    >
-                      <Settings className="w-3.5 h-3.5" /> 前往设置中心配置厂商与 API Key
-                    </button>
-                  )}
+          {viewMode === 'summary' ? (
+            <div
+              ref={scrollContainerRef}
+              onWheel={markUserManualAction}
+              onTouchMove={markUserManualAction}
+              className="flex-1 min-h-0 p-4 overflow-y-auto scroll-smooth space-y-3.5"
+            >
+              {/* Loading State */}
+              {loading && (
+                <div className="py-10 flex flex-col items-center justify-center gap-3 text-slate-400">
+                  <Loader2 className="w-7 h-7 animate-spin text-sky-500" />
+                  <p className="text-xs font-medium tracking-wide">
+                    正在智能提炼视频核心亮点...
+                  </p>
                 </div>
-              </div>
-            )}
+              )}
 
-            {/* Manual Mode Trigger Panel */}
-            {isManualMode && !summary && !loading && !error && (
-              <ManualTriggerPanel
-                isDark={isDark}
-                loading={loading}
-                videoDuration={duration || videoInfo?.duration || 0}
-                minDurationForAutoSec={settings.minDurationForAutoSec}
-                autoSummarizeEnabled={settings.autoSummarize}
-                onTrigger={() => triggerSummary(false)}
-              />
-            )}
-
-            {/* Summary Content */}
-            {summary && !loading && (
-              <>
-                {/* One Sentence Summary */}
-                {summary.oneSentenceSummary && (
-                  <div
-                    className={`p-3 rounded-xl border text-xs leading-relaxed select-text ${
-                      isDark
-                        ? 'bg-slate-800/50 border-slate-700/50 text-slate-200'
-                        : 'bg-slate-50 border-slate-200 text-slate-700'
-                    }`}
-                  >
-                    <span className="font-bold text-sky-500 mr-1.5">⚡ 全片核心:</span>
-                    {summary.oneSentenceSummary}
+              {/* Error State */}
+              {error && !loading && (
+                <div
+                  className={`p-3.5 rounded-xl border flex items-start gap-2.5 ${
+                    isDark
+                      ? 'bg-rose-950/40 border-rose-800/50 text-rose-200'
+                      : 'bg-rose-50 border-rose-200 text-rose-800'
+                  }`}
+                >
+                  <AlertCircle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
+                  <div className="text-xs space-y-1.5 min-w-0 flex-1">
+                    <p className="font-semibold text-rose-500">无法生成总结</p>
+                    <p className="opacity-90 leading-relaxed break-words">{error}</p>
+                    {error.includes('刷新') ? (
+                      <button
+                        type="button"
+                        onClick={() => window.location.reload()}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500 text-white text-[11px] font-semibold transition-all hover:bg-sky-400 cursor-pointer mt-1"
+                      >
+                        <RotateCcw className="w-3 h-3" /> 立即按 F5 刷新网页
+                      </button>
+                    ) : error.includes('字幕') ? (
+                      <div className="pt-1 text-[11px] text-slate-400 flex items-center gap-1">
+                        <FileText className="w-3 h-3 text-slate-400" />
+                        <span>提示：该视频没有外挂字幕/AI字幕，仅有UP压制的画面硬字幕</span>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleOpenOptions}
+                        className="inline-flex items-center gap-1 text-[11px] text-sky-500 hover:underline cursor-pointer pt-0.5 font-semibold"
+                      >
+                        <Settings className="w-3.5 h-3.5" /> 前往设置中心配置厂商与 API Key
+                      </button>
+                    )}
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* Highlights List with Dual-Track Annotations */}
-                <HighlightList
+              {/* Manual Mode Trigger Panel */}
+              {isManualMode && !summary && !loading && !error && (
+                <ManualTriggerPanel
                   isDark={isDark}
-                  highlights={summary.highlights}
-                  selectedIndex={selectedIndex}
-                  expandedQuoteIds={expandedQuoteIds}
-                  enableNumberKeySeek={settings.enableNumberKeySeek}
-                  currentPlaybackSec={currentPlaybackSec}
-                  onJump={handleJump}
-                  onToggleQuoteExpand={toggleQuoteExpand}
-                  onSeekQuote={(sec) => {
-                    markUserManualAction();
-                    seekTo(sec);
-                    showToast('已跳转至原文字幕');
-                  }}
-                  getAnnotationForHighlight={getForHighlight}
-                  onSaveAnnotation={(h, data) => {
-                    const sec =
-                      typeof h.timestamp === 'number'
-                        ? h.timestamp
-                        : (h.timestampSec ?? 0);
-                    saveAnnotation({
-                      timestamp: sec,
-                      timestampStr: h.timestampStr,
-                      highlightId: h.id,
-                      type: data.type,
-                      content: data.content,
-                    });
-                    showToast('已保存思考感悟');
-                  }}
-                  onDeleteAnnotation={(id) => {
-                    deleteAnnotation(id);
-                    showToast('已删除感悟');
-                  }}
-                  onInsertToNativeNote={(h, withScreenshot) => {
-                    return insertCardToNativeNote(h, getForHighlight(h.id), withScreenshot);
-                  }}
-                  itemRefs={itemRefs}
+                  loading={loading}
+                  videoDuration={duration || videoInfo?.duration || 0}
+                  minDurationForAutoSec={settings.minDurationForAutoSec}
+                  autoSummarizeEnabled={settings.autoSummarize}
+                  onTrigger={() => triggerSummary(false)}
                 />
-              </>
-            )}
-          </div>
+              )}
+
+              {/* Summary Content */}
+              {summary && !loading && (
+                <>
+                  {summary.oneSentenceSummary && (
+                    <div
+                      className={`p-3 rounded-xl border text-xs leading-relaxed select-text ${
+                        isDark
+                          ? 'bg-slate-800/50 border-slate-700/50 text-slate-200'
+                          : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <span className="font-bold text-sky-500 mr-1.5">⚡ 全片核心:</span>
+                      {summary.oneSentenceSummary}
+                    </div>
+                  )}
+
+                  <SummaryArtifacts
+                    isDark={isDark}
+                    summary={summary}
+                    onSeekQuote={(sec) => {
+                      markUserManualAction();
+                      seekTo(sec);
+                      showToast('已跳转至金句原文');
+                    }}
+                  />
+
+                  <HighlightList
+                    isDark={isDark}
+                    highlights={summary.highlights}
+                    selectedIndex={selectedIndex}
+                    expandedQuoteIds={expandedQuoteIds}
+                    enableNumberKeySeek={settings.enableNumberKeySeek}
+                    currentPlaybackSec={currentPlaybackSec}
+                    onJump={handleJump}
+                    onToggleQuoteExpand={toggleQuoteExpand}
+                    onSeekQuote={(sec) => {
+                      markUserManualAction();
+                      seekTo(sec);
+                      showToast('已跳转至原文字幕');
+                    }}
+                    getAnnotationForHighlight={getForHighlight}
+                    onSaveAnnotation={(h, data) => {
+                      const sec =
+                        typeof h.timestamp === 'number'
+                          ? h.timestamp
+                          : (h.timestampSec ?? 0);
+                      return saveAnnotation({
+                        id: getForHighlight(h.id)?.id,
+                        timestamp: sec,
+                        timestampStr: h.timestampStr,
+                        highlightId: h.id,
+                        type: data.type,
+                        content: data.content,
+                      });
+                    }}
+                    onDeleteAnnotation={(id) => {
+                      return deleteAnnotation(id);
+                    }}
+                    onInsertToNativeNote={(h, withScreenshot) => {
+                      return insertCardToNativeNote(h, withScreenshot);
+                    }}
+                    itemRefs={itemRefs}
+                  />
+                </>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 min-h-0 flex flex-col p-4">
+              <TranscriptStream
+                isDark={isDark}
+                items={subtitles}
+                loading={transcriptLoading}
+                error={transcriptError}
+                currentPlaybackSec={currentPlaybackSec}
+                shouldAutoFollow={!isUserManualActionActive()}
+                onRetry={() => {
+                  void retryTranscript();
+                }}
+                onSeek={seekTo}
+                onManualInteraction={markUserManualAction}
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

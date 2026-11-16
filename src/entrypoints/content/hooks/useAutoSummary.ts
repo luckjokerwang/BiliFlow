@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { browser } from 'wxt/browser';
 import {
   ExtensionMessage,
@@ -7,6 +7,10 @@ import {
   ResolvedVideoInfo,
   BiliRawSubtitleItem,
 } from '../../../types';
+import {
+  TranscriptLoadResult,
+  TranscriptRequestCoordinator,
+} from './transcriptRequestCoordinator';
 import { UserSettings } from '../../../types/settings';
 import {
   extractVideoMeta,
@@ -28,11 +32,15 @@ export interface UseAutoSummaryReturn {
   error: string | null;
   isManualMode: boolean;
   videoInfo: ResolvedVideoInfo | null;
+  subtitles: BiliRawSubtitleItem[];
+  transcriptLoading: boolean;
+  transcriptError: string | null;
   triggerSummary: (forceRefresh?: boolean) => Promise<void>;
   retrySummary: () => Promise<void>;
+  retryTranscript: () => Promise<void>;
 }
 
-async function safeSendMessage<T = any>(
+async function safeSendMessage<T = unknown>(
   msg: ExtensionMessage
 ): Promise<ExtensionResponse<T>> {
   if (!browser.runtime?.id) {
@@ -44,8 +52,8 @@ async function safeSendMessage<T = any>(
   try {
     const res = await browser.runtime.sendMessage(msg);
     return res as ExtensionResponse<T>;
-  } catch (err: any) {
-    const errMsg = err?.message || String(err);
+  } catch (err: unknown) {
+    const errMsg = err instanceof Error ? err.message : String(err);
     if (
       errMsg.includes('Extension context invalidated') ||
       errMsg.includes('Cannot read properties of undefined')
@@ -68,32 +76,104 @@ export function useAutoSummary({
   const [error, setError] = useState<string | null>(null);
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
   const [videoInfo, setVideoInfo] = useState<ResolvedVideoInfo | null>(null);
+  const [subtitles, setSubtitles] = useState<BiliRawSubtitleItem[]>([]);
+  const [transcriptLoading, setTranscriptLoading] = useState<boolean>(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+
+  const coordinator = useMemo(
+    () =>
+      new TranscriptRequestCoordinator((state) => {
+        setSubtitles(state.items);
+        setTranscriptLoading(state.loading);
+        setTranscriptError(state.error);
+      }),
+    []
+  );
 
   const currentVideoKeyRef = useRef<string>('');
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const requestIdRef = useRef<number>(0);
+  const summaryAbortControllerRef = useRef<AbortController | null>(null);
+  const summaryRequestIdRef = useRef<number>(0);
+  const videoEpochRef = useRef<number>(0);
   const resolvedInfoRef = useRef<ResolvedVideoInfo | null>(null);
+
+  const loadTranscript = useCallback(
+    (
+      videoKey: string,
+      info: ResolvedVideoInfo,
+      force = false
+    ): Promise<TranscriptLoadResult> => {
+      const loader = async (): Promise<BiliRawSubtitleItem[]> => {
+        const res = await safeSendMessage<BiliRawSubtitleItem[]>({
+          type: 'FETCH_SUBTITLES',
+          payload: { bvid: info.bvid, cid: info.cid, aid: info.aid },
+        });
+        if (!res.success) {
+          throw new Error(res.error || '获取全文字幕失败');
+        }
+        return Array.isArray(res.data) ? res.data : [];
+      };
+
+      return force
+        ? coordinator.retry(videoKey, loader)
+        : coordinator.ensure(videoKey, loader);
+    },
+    [coordinator]
+  );
+
+  const awaitCurrentTranscript = useCallback(
+    async (
+      videoKey: string,
+      info: ResolvedVideoInfo,
+      requestId: number,
+      abortSignal: AbortSignal,
+      videoEpoch: number
+    ): Promise<BiliRawSubtitleItem[]> => {
+      const isStale = () =>
+        abortSignal.aborted ||
+        requestId !== summaryRequestIdRef.current ||
+        videoEpoch !== videoEpochRef.current ||
+        currentVideoKeyRef.current !== videoKey;
+
+      while (true) {
+        if (isStale()) return [];
+        const result = await loadTranscript(videoKey, info);
+        if (result.status === 'superseded') {
+          if (isStale()) return [];
+          continue;
+        }
+        if (result.status === 'error') {
+          throw new Error(result.error);
+        }
+        if (result.items.length === 0) {
+          throw new Error('该视频未包含任何官方字幕或 AI 生成字幕，无法提炼要点。');
+        }
+        return result.items;
+      }
+    },
+    [loadTranscript]
+  );
 
   const loadSummaryForCurrentVideo = useCallback(
     async (forceRefresh = false, explicitManualTrigger = false) => {
       const meta = extractVideoMeta();
       if (!meta || !meta.bvid) {
+        coordinator.reset();
         setSummary(null);
         setError('未检测到正在播放的 B 站视频');
         return;
       }
 
-      // Cancel any previous in-flight task and bump request token
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      // Cancel only the previous summary flow; transcript has its own lifecycle.
+      if (summaryAbortControllerRef.current) {
+        summaryAbortControllerRef.current.abort();
       }
       const abortController = new AbortController();
-      abortControllerRef.current = abortController;
-      const requestId = ++requestIdRef.current;
+      summaryAbortControllerRef.current = abortController;
+      const requestId = ++summaryRequestIdRef.current;
+      const videoEpoch = videoEpochRef.current;
 
       setError(null);
 
-      // If forceRefresh, immediately purge cache in background
       if (forceRefresh && meta.bvid) {
         safeSendMessage({
           type: 'DELETE_CACHED_SUMMARY',
@@ -102,13 +182,18 @@ export function useAutoSummary({
       }
 
       try {
-        // 1. Resolve video metadata
         const resolveRes = await safeSendMessage<ResolvedVideoInfo>({
           type: 'RESOLVE_VIDEO_INFO',
           payload: { bvid: meta.bvid, pIndex: meta.pIndex },
         });
 
-        if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
+        if (
+          abortController.signal.aborted ||
+          requestId !== summaryRequestIdRef.current ||
+          videoEpoch !== videoEpochRef.current
+        ) {
+          return;
+        }
 
         if (!resolveRes.success || !resolveRes.data) {
           throw new Error(resolveRes.error || '解析视频信息失败');
@@ -123,14 +208,23 @@ export function useAutoSummary({
         const videoKey = `${resolved.bvid}_p${meta.pIndex}_${resolved.cid}`;
         currentVideoKeyRef.current = videoKey;
 
-        // 2. Check cached summary if not forced
+        // Start transcript immediately. Cache and manual-mode early returns do
+        // not own this Promise, so the coordinator still publishes its result.
+        void loadTranscript(videoKey, resolved);
+
         if (!forceRefresh) {
           const cachedRes = await safeSendMessage<VideoSummaryResult | null>({
             type: 'GET_CACHED_SUMMARY',
             payload: { bvid: resolved.bvid, cid: resolved.cid },
           });
 
-          if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
+          if (
+            abortController.signal.aborted ||
+            requestId !== summaryRequestIdRef.current ||
+            videoEpoch !== videoEpochRef.current
+          ) {
+            return;
+          }
 
           if (cachedRes.success && cachedRes.data) {
             const cached = cachedRes.data;
@@ -146,75 +240,79 @@ export function useAutoSummary({
               setIsManualMode(false);
               setLoading(false);
               return;
-            } else if (!isValid) {
-              console.warn(
-                '[BiliFlow] Cached summary mismatch or corrupted, auto-purging:',
-                videoKey
-              );
-              safeSendMessage({
-                type: 'DELETE_CACHED_SUMMARY',
-                payload: { bvid: resolved.bvid, cid: resolved.cid },
-              }).catch(() => {});
             }
+
+            console.warn(
+              '[BiliFlow] Cached summary mismatch or corrupted, auto-purging:',
+              videoKey
+            );
+            safeSendMessage({
+              type: 'DELETE_CACHED_SUMMARY',
+              payload: { bvid: resolved.bvid, cid: resolved.cid },
+            }).catch(() => {});
           }
         }
 
-        // 3. Evaluate Feature Flags for Auto-Summarization
         const isDurationTooShort =
           videoDuration > 0 &&
           typeof settings.minDurationForAutoSec === 'number' &&
           videoDuration < settings.minDurationForAutoSec;
-
-        const shouldAutoSummarize =
-          settings.autoSummarize && !isDurationTooShort;
+        const shouldAutoSummarize = settings.autoSummarize && !isDurationTooShort;
 
         if (!explicitManualTrigger && !shouldAutoSummarize) {
-          // Switch to manual mode, do not call LLM automatically
           setIsManualMode(true);
           setLoading(false);
           setSummary(null);
           return;
         }
 
-        // Explicit or automatic trigger: start generation
         setIsManualMode(false);
         setLoading(true);
         setSummary(null);
 
-        // 4. Fetch subtitles
-        const subRes = await safeSendMessage<BiliRawSubtitleItem[]>({
-          type: 'FETCH_SUBTITLES',
-          payload: { bvid: resolved.bvid, cid: resolved.cid, aid: resolved.aid },
-        });
+        const transcriptItems = await awaitCurrentTranscript(
+          videoKey,
+          resolved,
+          requestId,
+          abortController.signal,
+          videoEpoch
+        );
 
-        if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
-
-        const validSubtitles = Array.isArray(subRes.data)
-          ? subRes.data.filter((item) => item && item.content && item.content.trim().length > 0)
-          : [];
-
-        if (!subRes.success || validSubtitles.length === 0) {
-          throw new Error(subRes.error || '该视频未包含任何官方字幕或 AI 生成字幕，无法提炼要点。');
+        if (
+          abortController.signal.aborted ||
+          requestId !== summaryRequestIdRef.current ||
+          videoEpoch !== videoEpochRef.current ||
+          transcriptItems.length === 0
+        ) {
+          return;
         }
 
-        // 5. Generate summary via LLM
         const sumRes = await safeSendMessage<VideoSummaryResult>({
           type: 'GENERATE_SUMMARY',
           payload: {
             bvid: resolved.bvid,
             cid: resolved.cid,
+            aid: resolved.aid,
             title: resolved.title,
-            subtitles: subRes.data,
+            durationSec: videoDuration,
+            description: resolved.description,
+            subtitles: transcriptItems,
           },
         });
 
-        if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
+        if (
+          abortController.signal.aborted ||
+          requestId !== summaryRequestIdRef.current ||
+          videoEpoch !== videoEpochRef.current
+        ) {
+          return;
+        }
 
         if (!sumRes.success || !sumRes.data) {
           throw new Error(sumRes.error || '生成总结失败，请检查 API Key 配置。');
         }
 
-        if (currentVideoKeyRef.current === videoKey && requestId === requestIdRef.current) {
+        if (currentVideoKeyRef.current === videoKey) {
           setSummary(sumRes.data);
           if (sumRes.data.isFallbackUsed) {
             const label = sumRes.data.usedProviderName
@@ -223,13 +321,18 @@ export function useAutoSummary({
             onToast?.(`⚡ 主用服务异常，已自动启用兜底${label}完成提炼`);
           }
         }
-      } catch (err: any) {
-        if (abortController.signal.aborted || requestId !== requestIdRef.current) return;
+      } catch (err: unknown) {
+        if (
+          abortController.signal.aborted ||
+          requestId !== summaryRequestIdRef.current ||
+          videoEpoch !== videoEpochRef.current
+        ) {
+          return;
+        }
         console.error('[BiliFlow] Error loading summary:', err);
         setSummary(null);
-        setError(err?.message || '处理发生异常');
+        setError(err instanceof Error ? err.message : String(err));
 
-        // On failure (especially missing subtitles), purge any potential dirty cache
         if (resolvedInfoRef.current?.bvid && resolvedInfoRef.current?.cid) {
           safeSendMessage({
             type: 'DELETE_CACHED_SUMMARY',
@@ -240,12 +343,23 @@ export function useAutoSummary({
           }).catch(() => {});
         }
       } finally {
-        if (!abortController.signal.aborted && requestId === requestIdRef.current) {
+        if (
+          !abortController.signal.aborted &&
+          requestId === summaryRequestIdRef.current &&
+          videoEpoch === videoEpochRef.current
+        ) {
           setLoading(false);
         }
       }
     },
-    [settings.autoSummarize, settings.minDurationForAutoSec, onToast]
+    [
+      settings.autoSummarize,
+      settings.minDurationForAutoSec,
+      onToast,
+      coordinator,
+      loadTranscript,
+      awaitCurrentTranscript,
+    ]
   );
 
   // Monitor SPA URL / Video changes with 0ms reactive detection, DOM playlist observer & video stream sync
@@ -260,14 +374,14 @@ export function useAutoSummary({
       }
       lastObservedKey = newKey;
 
-      // 1. Immediately abort any in-flight task from previous video
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      if (summaryAbortControllerRef.current) {
+        summaryAbortControllerRef.current.abort();
       }
-      requestIdRef.current++;
+      summaryRequestIdRef.current++;
+      videoEpochRef.current++;
+      coordinator.reset();
       resolvedInfoRef.current = null;
 
-      // 2. Immediately reset state to eliminate ghost data from previous video
       setSummary(null);
       setError(null);
       setLoading(false);
@@ -275,22 +389,16 @@ export function useAutoSummary({
       setVideoInfo(null);
       currentVideoKeyRef.current = '';
 
-      // 3. Immediately clean up old timeline markers & hover cards on the player
       cleanupPlayerInjections();
-
-      // 4. Load summary for the new video
       loadSummaryForCurrentVideo(false, false);
     };
 
-    // Initial load
     handleVideoChange(true);
 
-    // 1. Subscribe to SPA 0ms navigation events + popstate + fallback polling
     const unsubscribeSpa = onSpaNavigate(() => {
       handleVideoChange(false);
     });
 
-    // 2. Observe DOM Playlist mutations (detects when Bilibili marks a new episode .active / .on)
     let playlistObserver: MutationObserver | null = null;
     if (typeof MutationObserver !== 'undefined' && typeof document !== 'undefined') {
       playlistObserver = new MutationObserver(() => {
@@ -317,7 +425,6 @@ export function useAutoSummary({
       }
     }
 
-    // 3. Listen to video stream change events (handles auto-advance when Bilibili switches media internally)
     let currentAttachedVideo: HTMLVideoElement | null = null;
     const handleVideoLoaded = () => {
       const meta = extractVideoMeta();
@@ -351,12 +458,12 @@ export function useAutoSummary({
         currentAttachedVideo.removeEventListener('emptied', handleVideoLoaded);
       }
       clearInterval(videoAttachTimer);
-      if (abortControllerRef.current) {
-        abortControllerRef.current.abort();
+      if (summaryAbortControllerRef.current) {
+        summaryAbortControllerRef.current.abort();
       }
       cleanupPlayerInjections();
     };
-  }, [loadSummaryForCurrentVideo]);
+  }, [loadSummaryForCurrentVideo, coordinator]);
 
   const triggerSummary = useCallback(
     async (forceRefresh = false) => {
@@ -369,13 +476,24 @@ export function useAutoSummary({
     await loadSummaryForCurrentVideo(true, true);
   }, [loadSummaryForCurrentVideo]);
 
+  const retryTranscript = useCallback(async () => {
+    const videoKey = currentVideoKeyRef.current;
+    const info = resolvedInfoRef.current;
+    if (!videoKey || !info) return;
+    await loadTranscript(videoKey, info, true);
+  }, [loadTranscript]);
+
   return {
     summary,
     loading,
     error,
     isManualMode,
     videoInfo,
+    subtitles,
+    transcriptLoading,
+    transcriptError,
     triggerSummary,
     retrySummary,
+    retryTranscript,
   };
 }

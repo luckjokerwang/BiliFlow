@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { chunkSubtitles, formatTranscriptForPrompt, compressChunksToFit } from '../src/utils/transcriptChunker';
+import {
+  chunkSubtitles,
+  formatTranscriptForPrompt,
+  compressChunksToFit,
+  partitionSubtitlesIntoWindows,
+} from '../src/utils/transcriptChunker';
 import { BiliRawSubtitleItem } from '../src/types';
 
 describe('transcriptChunker', () => {
@@ -51,5 +56,41 @@ describe('transcriptChunker', () => {
     // Ensure total character count is strictly bounded by maxTotalChars
     const totalChars = compressed.reduce((sum, c) => sum + c.text.length, 0);
     expect(totalChars).toBeLessThanOrEqual(300);
+  });
+});
+
+describe('partitionSubtitlesIntoWindows', () => {
+  it('keeps boundary and straddling sentences in lossless ten-minute windows', () => {
+    const windows = partitionSubtitlesIntoWindows(
+      [
+        { from: 0, to: 5, content: '开场' },
+        { from: 599.9, to: 600.5, content: '跨边界句' },
+        { from: 600, to: 604, content: '第二窗口句' },
+      ],
+      600
+    );
+
+    expect(windows).toHaveLength(2);
+    expect(windows[0].startTime).toBe(0);
+    expect(windows[0].items.map((item) => item.content)).toEqual([
+      '开场',
+      '跨边界句',
+    ]);
+    expect(windows[1].startTime).toBe(600);
+    expect(windows[1].items.map((item) => item.content)).toEqual([
+      '第二窗口句',
+    ]);
+    expect(windows[0].text).toContain('[00:00] 开场');
+    expect(windows[0].text).toContain('跨边界句');
+    expect(windows[1].text).toContain('第二窗口句');
+  });
+
+  it('returns no windows for empty input or invalid window size', () => {
+    const items: BiliRawSubtitleItem[] = [
+      { from: 0, to: 2, content: '有效字幕' },
+    ];
+    expect(partitionSubtitlesIntoWindows([], 600)).toEqual([]);
+    expect(partitionSubtitlesIntoWindows(items, 0)).toEqual([]);
+    expect(partitionSubtitlesIntoWindows(items, Number.NaN)).toEqual([]);
   });
 });

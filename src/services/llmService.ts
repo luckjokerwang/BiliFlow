@@ -3,15 +3,23 @@ import {
   VideoSummaryResult,
   BiliRawSubtitleItem,
   HighlightItem,
+  OriginalQuote,
+  TranscriptWindow,
+  MapPhaseResult,
+  VideoPreflightMetadata,
 } from '../types';
-import { chunkSubtitles, formatTranscriptForPrompt } from '../utils/transcriptChunker';
-import { parseLLMSummaryOutput } from '../utils/llmParser';
+import {
+  chunkSubtitles,
+  formatTranscriptForPrompt,
+  partitionSubtitlesIntoWindows,
+} from '../utils/transcriptChunker';
+import { parseLLMSummaryOutput, parseMapPhaseOutput } from '../utils/llmParser';
 import { extractQuotesForHighlight, snapTimestampToUtterance } from '../utils/subtitleUtils';
 import { formatSeconds } from '../utils/timeParser';
 
-const SYSTEM_PROMPT = `
+const SUMMARY_SYSTEM_PROMPT = `
 你是一个专业的 B 站视频核心内容提炼专家。
-请仔细阅读给出的带时间戳视频字幕，提炼出高信息密度的结构化总结。
+请仔细阅读给出的带时间戳视频字幕，并结合提供的官方章节、简介时间戳与弹幕高能点，提炼出高信息密度的结构化总结。
 
 请严格输出 JSON 格式（不要有前置或后置的多余客套话），格式如下：
 {
@@ -25,16 +33,204 @@ const SYSTEM_PROMPT = `
   ],
   "followUpQuestions": [
     "针对视频核心内容延伸出的 2-3 个好问题"
+  ],
+  "glossary": [
+    { "term": "视频中出现的专业术语", "definition": "结合视频语境的简明定义" }
+  ],
+  "actionableTakeaways": [
+    "具体可执行的收获或操作步骤"
+  ],
+  "punchlineQuotes": [
+    { "timestamp": "mm:ss", "content": "必须是字幕中出现的原文" }
   ]
 }
 
 要求：
-1. highlights 数量控制在 3 到 6 个最核心的节点。
+1. 没有【UP 主官方章节】时，highlights 数量控制在 3 到 6 个最核心节点；有官方章节时，每个有效章节生成一个 highlight，使用原章节标题且时间从章节起点开始，不受 3 到 6 个上限。
 2. timestamp 必须严格对应字幕里出现的起始时间戳（格式 mm:ss 或 hh:mm:ss）。
 3. 核心节点必须按时间线均匀覆盖视频的全片脉络（包含起承转合、核心论点推进与结尾结论），严禁全部拥挤在开篇前几分钟。
-4. 语言保持客观、干练、直击要害。
-5. 提炼内容必须紧密围绕【视频标题】与实际字幕内容展开；若提供的字幕与视频标题完全不匹配（如数据源错位），请在 JSON 中返回 {"error": "字幕内容与视频标题不匹配，可能存在数据源错位"}。
+4. 没有官方章节时，才把【简介时间戳】当作次级结构参考，并保持 3 到 6 个 highlights。
+5. 逐一核对【弹幕高能时间点】附近字幕；有实质内容的高能段必须在对应章节 keyPoint 或独立 highlight 中覆盖，密度数值本身不得被当作事实。
+6. 无 preflight 数据时保持纯字幕提炼；语言保持客观、干练、直击要害。
+7. 术语定义必须来自视频语境；行动项必须具体可执行，不是泛泛的 bullet point。
+8. punchlineQuotes 必须是字幕原文并带开始时间，禁止改写或编造；没有内容时返回空数组。
+9. glossary、actionableTakeaways 没有有效内容时也返回空数组，禁止编造。
+10. 提炼内容必须紧密围绕【视频标题】与实际字幕内容展开；若提供的字幕与视频标题完全不匹配（如数据源错位），请在 JSON 中返回 {"error": "字幕内容与视频标题不匹配，可能存在数据源错位"}。
+11. 长视频 reduce 阶段的 punchlineQuotes 只能逐字选自【逐字金句候选】，不得从记忆或概括中生成新原文。
 `.trim();
+
+const MAP_SYSTEM_PROMPT = `
+你是长视频字幕的局部 Map 阶段分析器。只处理当前 10 分钟窗口，提炼局部事实与逐字金句候选，不要输出全片总结。
+
+请严格输出 JSON 格式（不要有前置或后置的多余客套话），格式如下：
+{
+  "summary": "当前窗口的 1-2 句局部摘要",
+  "keyPoints": [
+    { "timestamp": "mm:ss (必须落在当前窗口)", "text": "局部事实要点" }
+  ],
+  "punchlineQuotes": [
+    { "timestamp": "mm:ss", "content": "必须逐字摘录当前窗口字幕" }
+  ]
+}
+
+要求：
+1. keyPoints 数量控制在 3 到 6 个；窗口没有实质内容时 summary 返回空字符串且两个数组返回空数组。
+2. 时间戳必须落在当前窗口范围，且对应字幕中出现的起始时间。
+3. punchlineQuotes 必须逐字摘自当前窗口字幕，禁止改写、拼接或编造；没有合适原文时返回空数组。
+4. 只输出 JSON，不输出 Markdown 或解释文字。
+`.trim();
+
+function buildPreflightPrompt(metadata?: VideoPreflightMetadata): string {
+  if (!metadata) return '';
+  const blocks: string[] = [];
+
+  const chapters = metadata.officialChapters || [];
+  if (chapters.length > 0) {
+    blocks.push(
+      `【UP 主官方章节】\n${chapters
+        .map(
+          (chapter) =>
+            `- [${formatSeconds(chapter.from)} ~ ${formatSeconds(chapter.to)}] ${chapter.title}`
+        )
+        .join('\n')}`
+    );
+  }
+
+  const descriptionPoints = metadata.descriptionTimestamps || [];
+  if (descriptionPoints.length > 0) {
+    blocks.push(
+      `【简介时间戳】\n${descriptionPoints
+        .map((point) => `- [${formatSeconds(point.seconds)}] ${point.title}`)
+        .join('\n')}`
+    );
+  }
+
+  const peaks = metadata.danmakuHeatmapPeaks || [];
+  if (peaks.length > 0) {
+    blocks.push(
+      `【弹幕高能时间点】\n${peaks
+        .map(
+          (peak) =>
+            `- [${formatSeconds(peak.timestampSec)}] 密度 ${peak.densityRatio.toFixed(3)}`
+        )
+        .join('\n')}`
+    );
+  }
+
+  return blocks.join('\n\n');
+}
+
+function matchPunchlineQuotesToSubtitles(
+  quotes: OriginalQuote[],
+  subtitles: BiliRawSubtitleItem[]
+): OriginalQuote[] {
+  const normalizedSubtitles = subtitles.map((item) => ({
+    item,
+    normalized: item.content.replace(/\s+/g, ''),
+  }));
+
+  return quotes.flatMap((quote) => {
+    const normalizedQuote = quote.content.replace(/\s+/g, '');
+    if (!normalizedQuote) return [];
+
+    const candidates = normalizedSubtitles.filter(({ normalized }) =>
+      normalized.includes(normalizedQuote)
+    );
+    if (candidates.length === 0) return [];
+
+    const best = candidates.reduce((closest, candidate) =>
+      Math.abs(candidate.item.from - quote.timestamp) <
+      Math.abs(closest.item.from - quote.timestamp)
+        ? candidate
+        : closest
+    );
+
+    return [
+      {
+        timestamp: best.item.from,
+        timestampStr: formatSeconds(best.item.from),
+        content: best.item.content,
+      },
+    ];
+  });
+}
+
+function filterPreflightForWindow(
+  metadata: VideoPreflightMetadata | undefined,
+  window: TranscriptWindow
+): VideoPreflightMetadata {
+  if (!metadata) return {};
+  const result: VideoPreflightMetadata = {};
+
+  const chapters = (metadata.officialChapters || []).filter(
+    (chapter) => chapter.from < window.endTime && chapter.to > window.startTime
+  );
+  const descriptionTimestamps = (metadata.descriptionTimestamps || []).filter(
+    (point) =>
+      point.seconds >= window.startTime && point.seconds <= window.endTime
+  );
+  const peaks = (metadata.danmakuHeatmapPeaks || []).filter(
+    (peak) =>
+      peak.timestampSec >= window.startTime &&
+      peak.timestampSec <= window.endTime
+  );
+
+  if (chapters.length > 0) result.officialChapters = chapters;
+  if (descriptionTimestamps.length > 0) {
+    result.descriptionTimestamps = descriptionTimestamps;
+  }
+  if (peaks.length > 0) result.danmakuHeatmapPeaks = peaks;
+  return result;
+}
+
+function buildMapPrompt(
+  title: string,
+  window: TranscriptWindow,
+  preflight: VideoPreflightMetadata | undefined
+): string {
+  const anchors = buildPreflightPrompt(
+    filterPreflightForWindow(preflight, window)
+  );
+  const anchorBlock = anchors ? `${anchors}\n` : '';
+  return `
+【视频标题】：${title}
+【字幕窗口】：${window.timestampStr}
+${anchorBlock}【当前窗口字幕】：
+${window.text}
+`.trim();
+}
+
+function buildReducePrompt(
+  title: string,
+  preflight: VideoPreflightMetadata | undefined,
+  mapResults: MapPhaseResult[],
+  punchlineCandidates: OriginalQuote[]
+): string {
+  const anchors = buildPreflightPrompt(preflight);
+  const anchorBlock = anchors ? `${anchors}\n` : '';
+  const segments = mapResults
+    .map((result, index) => {
+      const points = result.keyPoints
+        .map((point) => `- [${point.timestampStr}] ${point.text}`)
+        .join('\n');
+      return `【分段 ${index + 1}】\n局部摘要：${result.summary || '（无）'}\n${points || '（无局部要点）'}`;
+    })
+    .join('\n\n');
+  const candidates = punchlineCandidates.length
+    ? punchlineCandidates
+        .map((quote) => `- [${quote.timestampStr}] ${quote.content}`)
+        .join('\n')
+    : '（无可用候选）';
+
+  return `
+【视频标题】：${title}
+${anchorBlock}【分段摘要】：
+${segments}
+
+【逐字金句候选】：
+${candidates}
+`.trim();
+}
 
 export function formatBaseUrl(rawUrl: string, path: string): string {
   let clean = (rawUrl || '').trim().replace(/\/+$/, '');
@@ -84,20 +280,33 @@ export async function fetchRemoteModels(config: {
       throw new Error(`获取模型列表失败 (HTTP ${response.status}): ${errText || response.statusText}`);
     }
 
-    const data = await response.json();
-    const rawList = Array.isArray(data.data) ? data.data : Array.isArray(data) ? data : [];
+    const data: unknown = await response.json();
+    const root = data as { data?: unknown } | null;
+    const rawList: unknown[] = Array.isArray(root?.data)
+      ? root.data
+      : Array.isArray(data)
+        ? data
+        : [];
 
     const modelIds: string[] = rawList
-      .map((item: any) => (typeof item === 'string' ? item : item?.id || item?.name))
-      .filter((id: any): id is string => typeof id === 'string' && id.trim().length > 0);
+      .map((item: unknown) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const record = item as { id?: unknown; name?: unknown };
+          if (typeof record.id === 'string') return record.id;
+          if (typeof record.name === 'string') return record.name;
+        }
+        return '';
+      })
+      .filter((id) => id.trim().length > 0);
 
     if (modelIds.length === 0) {
       throw new Error('远程接口已连通，但返回的模型列表为空。');
     }
 
     return Array.from(new Set<string>(modelIds)).sort();
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
+  } catch (err: unknown) {
+    if (err instanceof Error && err.name === 'AbortError') {
       throw new Error('获取模型列表超时 (12s)，请检查网络连接或接口地址是否正确。');
     }
     throw err;
@@ -148,9 +357,14 @@ export async function testProviderConnection(config: {
       let friendlyMsg = `HTTP ${response.status}: ${errText || response.statusText}`;
 
       try {
-        const errJson = JSON.parse(errText);
+        const errJson = JSON.parse(errText) as {
+          error?: { message?: string };
+        };
         if (errJson?.error?.message) {
-          if (response.status === 402 || errJson.error.message.toLowerCase().includes('insufficient balance')) {
+          if (
+            response.status === 402 ||
+            errJson.error.message.toLowerCase().includes('insufficient balance')
+          ) {
             friendlyMsg = '账户余额不足 (Insufficient Balance)，请前往服务商充值。';
           } else if (response.status === 401) {
             friendlyMsg = 'API Key 无效 (401 Unauthorized)，请检查 Key 是否填写正确。';
@@ -158,7 +372,7 @@ export async function testProviderConnection(config: {
             friendlyMsg = `错误: ${errJson.error.message}`;
           }
         }
-      } catch (_) {}
+      } catch {}
 
       return {
         success: false,
@@ -168,9 +382,9 @@ export async function testProviderConnection(config: {
     }
 
     return { success: true, latencyMs };
-  } catch (err: any) {
+  } catch (err: unknown) {
     const latencyMs = Math.round(performance.now() - startTime);
-    if (err?.name === 'AbortError') {
+    if (err instanceof Error && err.name === 'AbortError') {
       return {
         success: false,
         latencyMs,
@@ -180,23 +394,42 @@ export async function testProviderConnection(config: {
     return {
       success: false,
       latencyMs,
-      error: err?.message || '网络连接超时或无法访问该地址 (Failed to fetch)',
+      error:
+        (err instanceof Error ? err.message : String(err)) ||
+        '网络连接超时或无法访问该地址 (Failed to fetch)',
     };
   } finally {
     clearTimeout(timeoutId);
   }
 }
 
+interface LlmCompletionResponse {
+  choices?: Array<{ message?: { content?: string } }>;
+}
+
+interface LlmRequestError extends Error {
+  status?: number;
+  isFatal?: boolean;
+}
+
 async function executeSingleChatCompletion(params: {
   endpoint: string;
   apiKey: string;
   model: string;
+  systemPrompt: string;
   userPrompt: string;
   maxRetries?: number;
 }): Promise<string> {
-  const { endpoint, apiKey, model, userPrompt, maxRetries = 2 } = params;
+  const {
+    endpoint,
+    apiKey,
+    model,
+    systemPrompt,
+    userPrompt,
+    maxRetries = 2,
+  } = params;
 
-  let lastError: any = null;
+  let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -212,7 +445,7 @@ async function executeSingleChatCompletion(params: {
         body: JSON.stringify({
           model,
           messages: [
-            { role: 'system', content: SYSTEM_PROMPT },
+            { role: 'system', content: systemPrompt },
             { role: 'user', content: userPrompt },
           ],
           temperature: 0.3,
@@ -227,11 +460,13 @@ async function executeSingleChatCompletion(params: {
         let isFatal = false;
 
         try {
-          const errJson = JSON.parse(errorBody);
+          const errJson = JSON.parse(errorBody) as {
+            error?: { message?: string };
+          };
           if (errJson?.error?.message) {
             errMessage = errJson.error.message;
           }
-        } catch (_) {}
+        } catch {}
 
         if (response.status === 402 || errMessage.toLowerCase().includes('insufficient balance')) {
           errMessage = '账户余额不足 (Insufficient Balance)';
@@ -244,9 +479,11 @@ async function executeSingleChatCompletion(params: {
           isFatal = true;
         }
 
-        const error = new Error(`LLM 报错 (${model}): ${errMessage}`);
-        (error as any).status = response.status;
-        (error as any).isFatal = isFatal;
+        const error = new Error(
+          `LLM 报错 (${model}): ${errMessage}`
+        ) as LlmRequestError;
+        error.status = response.status;
+        error.isFatal = isFatal;
 
         if (isFatal || attempt >= maxRetries || (response.status !== 429 && response.status < 500)) {
           throw error;
@@ -254,29 +491,33 @@ async function executeSingleChatCompletion(params: {
 
         lastError = error;
       } else {
-        const data = await response.json();
+        const data = (await response.json()) as LlmCompletionResponse;
         const rawContent = data.choices?.[0]?.message?.content;
-        if (!rawContent) {
+        if (typeof rawContent !== 'string' || !rawContent) {
           throw new Error(`模型 ${model} 返回内容为空`);
         }
         return rawContent;
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       lastError = err;
-      if (err?.isFatal || attempt >= maxRetries) {
+      const requestError = err as LlmRequestError;
+      if (requestError?.isFatal || attempt >= maxRetries) {
         throw err;
       }
 
       // Exponential backoff with jitter: 1s -> 2s (+ 0~200ms jitter)
       const delayMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 200, 4000);
+      const errMsg = err instanceof Error ? err.message : String(err);
       console.warn(
-        `[BiliFlow LLM] 请求【${model}】失败 (${err?.message || err})，${Math.round(delayMs)}ms 后进行第 ${attempt + 1}/${maxRetries} 次重试...`
+        `[BiliFlow LLM] 请求【${model}】失败 (${errMsg})，${Math.round(delayMs)}ms 后进行第 ${attempt + 1}/${maxRetries} 次重试...`
       );
       await new Promise((r) => setTimeout(r, delayMs));
     }
   }
 
-  throw lastError || new Error(`模型 ${model} 请求失败`);
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`模型 ${model} 请求失败`);
 }
 
 /**
@@ -312,6 +553,8 @@ export interface GenerateVideoSummaryParams {
   cid: string;
   title: string;
   subtitles: BiliRawSubtitleItem[];
+  durationSec?: number;
+  preflight?: VideoPreflightMetadata;
   provider: ProviderConfig;
   model?: string;
   fallbackProvider?: ProviderConfig;
@@ -328,6 +571,8 @@ export async function generateVideoSummary(
     cid,
     title,
     subtitles,
+    durationSec,
+    preflight,
     provider,
     model,
     fallbackProvider,
@@ -351,23 +596,43 @@ export async function generateVideoSummary(
     throw new Error('该视频未包含任何有效字幕文本，无法提炼要点。');
   }
 
-  const chunks = chunkSubtitles(validSubtitles, { maxDurationSeconds: 25, maxCharCount: 200 });
-  const formattedTranscript = formatTranscriptForPrompt(chunks);
+  const subtitleEnd = validSubtitles.reduce(
+    (end, item) =>
+      Number.isFinite(item.to) && item.to > end ? item.to : end,
+    0
+  );
+  const validDurationSec =
+    typeof durationSec === 'number' && Number.isFinite(durationSec) && durationSec > 0
+      ? durationSec
+      : 0;
+  const effectiveDurationSec = Math.max(validDurationSec, subtitleEnd);
+  const useMapReduce = effectiveDurationSec > 1200;
+  const windows = useMapReduce
+    ? partitionSubtitlesIntoWindows(validSubtitles, 600)
+    : [];
 
-  if (!formattedTranscript || !formattedTranscript.trim()) {
-    throw new Error('格式化后的字幕内容为空，无法进行 AI 提炼。');
-  }
+  function buildShortPrompt(): string {
+    const chunks = chunkSubtitles(validSubtitles, {
+      maxDurationSeconds: 25,
+      maxCharCount: 200,
+    });
+    const formattedTranscript = formatTranscriptForPrompt(chunks);
+    if (!formattedTranscript || !formattedTranscript.trim()) {
+      throw new Error('格式化后的字幕内容为空，无法进行 AI 提炼。');
+    }
 
-  const userPrompt = `
+    const preflightPrompt = buildPreflightPrompt(preflight);
+    const preflightBlock = preflightPrompt ? `${preflightPrompt}\n` : '';
+    return `
 【视频标题】：${title}
-【视频字幕】：
+${preflightBlock}【视频字幕】：
 ${formattedTranscript}
 `.trim();
+  }
 
   const primaryModel =
     model || provider.selectedModel || provider.models[0] || 'deepseek-chat';
 
-  // Build prioritized execution queue
   interface ExecutionTarget {
     provider: ProviderConfig;
     model: string;
@@ -379,12 +644,10 @@ ${formattedTranscript}
   ];
 
   if (enableFallback) {
-    // 1. Explicit fallback target (same-provider or dedicated cross-provider)
     const hasExplicitCross =
       fallbackProvider &&
       fallbackProvider.apiKey &&
       (fallbackProvider.id !== provider.id || Boolean(fallbackModel));
-
     const targetFallbackProvider = hasExplicitCross ? fallbackProvider : provider;
     const targetFallbackModel =
       fallbackModel ||
@@ -405,26 +668,92 @@ ${formattedTranscript}
       });
     }
 
-    // 2. Cascade through all other configured candidate providers
     if (Array.isArray(candidateProviders)) {
       for (const cp of candidateProviders) {
         if (!cp.apiKey || cp.apiKey.trim().length === 0) continue;
-        const alreadyInQueue = queue.some((q) => q.provider.id === cp.id);
-        if (!alreadyInQueue) {
-          const cpModel = cp.selectedModel || cp.models[0] || 'default';
-          queue.push({
-            provider: cp,
-            model: cpModel,
-            isFallback: true,
-          });
-        }
+        if (queue.some((q) => q.provider.id === cp.id)) continue;
+        queue.push({
+          provider: cp,
+          model: cp.selectedModel || cp.models[0] || 'default',
+          isFallback: true,
+        });
       }
     }
   }
 
+  async function runPipelineForTarget(
+    target: ExecutionTarget,
+    endpoint: string
+  ): Promise<string> {
+    const requestBase = {
+      endpoint,
+      apiKey: target.provider.apiKey,
+      model: target.model,
+    };
+
+    if (!useMapReduce) {
+      return executeSingleChatCompletion({
+        ...requestBase,
+        systemPrompt: SUMMARY_SYSTEM_PROMPT,
+        userPrompt: buildShortPrompt(),
+      });
+    }
+
+    if (windows.length === 0) {
+      throw new Error('长视频分段未产生任何可用内容');
+    }
+
+    const mapResults: MapPhaseResult[] = [];
+    const punchlineCandidates: OriginalQuote[] = [];
+
+    for (const window of windows) {
+      const rawMapOutput = await executeSingleChatCompletion({
+        ...requestBase,
+        systemPrompt: MAP_SYSTEM_PROMPT,
+        userPrompt: buildMapPrompt(title, window, preflight),
+      });
+      const parsedMap = parseMapPhaseOutput(rawMapOutput);
+      const keyPoints = parsedMap.keyPoints.filter(
+        (point) =>
+          point.timestamp >= window.startTime && point.timestamp <= window.endTime
+      );
+      const punchlineQuotes = matchPunchlineQuotesToSubtitles(
+        parsedMap.punchlineQuotes,
+        window.items
+      );
+      const mapped: MapPhaseResult = {
+        summary: parsedMap.summary,
+        keyPoints,
+        punchlineQuotes,
+      };
+      mapResults.push(mapped);
+      punchlineCandidates.push(...punchlineQuotes);
+    }
+
+    const hasContent = mapResults.some(
+      (result) =>
+        result.summary.trim().length > 0 ||
+        result.keyPoints.length > 0 ||
+        result.punchlineQuotes.length > 0
+    );
+    if (!hasContent) {
+      throw new Error('长视频分段未产生任何可用内容');
+    }
+
+    return executeSingleChatCompletion({
+      ...requestBase,
+      systemPrompt: SUMMARY_SYSTEM_PROMPT,
+      userPrompt: buildReducePrompt(
+        title,
+        preflight,
+        mapResults,
+        punchlineCandidates
+      ),
+    });
+  }
+
   const errors: string[] = [];
 
-  // Waterfall sequential execution across candidate targets
   for (let i = 0; i < queue.length; i++) {
     const target = queue[i];
     const isPrimary = i === 0;
@@ -437,19 +766,18 @@ ${formattedTranscript}
     }
 
     try {
-      const rawContent = await executeSingleChatCompletion({
-        endpoint,
-        apiKey: target.provider.apiKey,
-        model: target.model,
-        userPrompt,
-      });
-
+      const rawContent = await runPipelineForTarget(target, endpoint);
       const parsed = parseLLMSummaryOutput(rawContent, { bvid, cid, title });
       const highlightsWithQuotes = attachQuotesToHighlights(parsed.highlights, subtitles);
+      const punchlineQuotes = matchPunchlineQuotesToSubtitles(
+        parsed.punchlineQuotes || [],
+        validSubtitles
+      );
 
       return {
         ...parsed,
         highlights: highlightsWithQuotes,
+        punchlineQuotes,
         usedModel: target.model,
         usedProviderName: target.provider.name,
         isFallbackUsed: target.isFallback,
@@ -458,7 +786,6 @@ ${formattedTranscript}
       const errMsg = err instanceof Error ? err.message : String(err);
       errors.push(`【${target.provider.name} · ${target.model}】: ${errMsg}`);
 
-      // If this was the last candidate in queue, construct a comprehensive error
       if (i === queue.length - 1) {
         if (queue.length > 1) {
           throw new Error(

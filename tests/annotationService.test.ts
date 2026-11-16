@@ -1,16 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const mockStorage: Record<string, any> = {};
+const mockStorage: Record<string, unknown> = {};
+type StorageSetter = (obj: Record<string, unknown>) => Promise<void>;
+let setOverride: StorageSetter | null = null;
+
+const defaultSet: StorageSetter = (obj) => {
+  Object.assign(mockStorage, obj);
+  return Promise.resolve();
+};
 
 vi.mock('wxt/browser', () => ({
   browser: {
     storage: {
       local: {
         get: vi.fn((key: string) => Promise.resolve({ [key]: mockStorage[key] })),
-        set: vi.fn((obj: Record<string, any>) => {
-          Object.assign(mockStorage, obj);
-          return Promise.resolve();
-        }),
+        set: vi.fn((obj: Record<string, unknown>) =>
+          setOverride ? setOverride(obj) : defaultSet(obj)
+        ),
       },
     },
   },
@@ -20,6 +26,7 @@ import {
   getAnnotations,
   saveAnnotation,
   deleteAnnotation,
+  getAnnotationForHighlight,
 } from '../src/services/annotationService';
 
 describe('annotationService', () => {
@@ -30,7 +37,7 @@ describe('annotationService', () => {
     for (const key of Object.keys(mockStorage)) {
       delete mockStorage[key];
     }
-    vi.clearAllMocks();
+    setOverride = null;
   });
 
   it('should return empty array when no annotations exist', async () => {
@@ -121,5 +128,86 @@ describe('annotationService', () => {
     expect(list.length).toBe(2);
     expect(list[0].timestamp).toBe(60);
     expect(list[1].timestamp).toBe(300);
+  });
+
+  function deferFirstSet(): () => void {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    setOverride = (obj) => {
+      Object.assign(mockStorage, obj);
+      setOverride = null;
+      return gate;
+    };
+    return release;
+  }
+
+  it('keeps one annotation and the last text for concurrent saves on the same highlight', async () => {
+    const release = deferFirstSet();
+    const first = saveAnnotation(bvid, cid, {
+      timestamp: 90,
+      timestampStr: '01:30',
+      content: '第一版',
+      highlightId: 42,
+    });
+    const second = saveAnnotation(bvid, cid, {
+      timestamp: 90,
+      timestampStr: '01:30',
+      content: '最后文本',
+      highlightId: 42,
+    });
+    release();
+
+    const [savedFirst, savedSecond] = await Promise.all([first, second]);
+    expect(savedSecond.id).toBe(savedFirst.id);
+    expect(savedSecond.createdAt).toBe(savedFirst.createdAt);
+    const list = await getAnnotations(bvid, cid);
+    expect(list).toHaveLength(1);
+    expect(list[0].content).toBe('最后文本');
+  });
+
+  it('does not resurrect an annotation when delete is queued behind a pending save', async () => {
+    const initial = await saveAnnotation(bvid, cid, {
+      timestamp: 90,
+      timestampStr: '01:30',
+      content: '初始内容',
+      highlightId: 42,
+    });
+
+    const release = deferFirstSet();
+    const update = saveAnnotation(bvid, cid, {
+      id: initial.id,
+      timestamp: 90,
+      timestampStr: '01:30',
+      content: '将被删除',
+      highlightId: 42,
+    });
+    const removal = deleteAnnotation(bvid, cid, initial.id);
+    release();
+
+    await Promise.all([update, removal]);
+    expect(await getAnnotations(bvid, cid)).toEqual([]);
+  });
+
+  it('getAnnotationForHighlight waits for queued saves and reads the final value', async () => {
+    const release = deferFirstSet();
+    const first = saveAnnotation(bvid, cid, {
+      timestamp: 90,
+      timestampStr: '01:30',
+      content: '第一句',
+      highlightId: 77,
+    });
+    const second = saveAnnotation(bvid, cid, {
+      timestamp: 90,
+      timestampStr: '01:30',
+      content: '最后一句',
+      highlightId: 77,
+    });
+    const latest = getAnnotationForHighlight(bvid, cid, 77);
+    release();
+
+    const [, , annotation] = await Promise.all([first, second, latest]);
+    expect(annotation?.content).toBe('最后一句');
   });
 });

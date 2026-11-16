@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Clock,
   Quote,
@@ -13,7 +13,11 @@ import {
   X,
 } from 'lucide-react';
 import { HighlightItem } from '../../../types';
-import { UserAnnotation, UserAnnotationType } from '../../../types/biliNote';
+import {
+  NativeNoteInsertResult,
+  UserAnnotation,
+  UserAnnotationType,
+} from '../../../types/biliNote';
 import { getTypeLabel } from '../../../utils/biliNoteFormatter';
 import { OriginalQuotesList } from './OriginalQuotesList';
 
@@ -29,9 +33,15 @@ export interface HighlightItemCardProps {
   onJump: (item: HighlightItem, index: number) => void;
   onToggleExpand: (id: string | number, e: React.MouseEvent) => void;
   onSeekQuote: (seconds: number) => void;
-  onSaveAnnotation?: (data: { type: UserAnnotationType; content: string }) => void;
-  onDeleteAnnotation?: () => void;
-  onInsertToNativeNote?: (withScreenshot: boolean) => Promise<boolean | void>;
+  onSaveAnnotation?: (data: {
+    id?: string;
+    type: UserAnnotationType;
+    content: string;
+  }) => Promise<UserAnnotation | void> | void;
+  onDeleteAnnotation?: () => Promise<boolean | void> | void;
+  onInsertToNativeNote?: (
+    withScreenshot: boolean
+  ) => Promise<NativeNoteInsertResult | void> | void;
   cardRef?: (el: HTMLDivElement | null) => void;
 }
 
@@ -68,62 +78,100 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
   );
 
   // Micro-feedback state for native note sync
-  const [syncState, setSyncState] = useState<'idle' | 'loading' | 'success' | 'error'>('idle');
+  const [syncState, setSyncState] = useState<
+    'idle' | 'loading' | 'success' | 'queued' | 'error'
+  >('idle');
   const [syncTarget, setSyncTarget] = useState<'text' | 'screenshot' | null>(null);
+  const [saveState, setSaveState] = useState<'saving' | 'saved' | 'error' | 'idle'>(
+    'idle'
+  );
+  const saveRevisionRef = useRef<number>(0);
+  const latestSavePromiseRef = useRef<Promise<UserAnnotation | void>>(
+    Promise.resolve()
+  );
 
-  // Sync state if annotation updates externally
+  // Never overwrite in-progress typing with an async save result.
   useEffect(() => {
+    if (isEditingThought) return;
     if (annotation) {
       setThoughtType(annotation.type);
       setThoughtContent(annotation.content);
+    } else {
+      setThoughtType('insight');
+      setThoughtContent('');
     }
-  }, [annotation]);
+  }, [annotation, isEditingThought]);
 
   const hasQuotes = item.originalQuotes && item.originalQuotes.length > 0;
   const showNumberBadge = enableNumberKeySeek && index < 9;
 
-  const handleSaveThought = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (thoughtContent.trim()) {
+  const persistThought = (
+    nextType: UserAnnotationType,
+    nextContent: string
+  ): Promise<UserAnnotation | void> => {
+    const revision = ++saveRevisionRef.current;
+    setSaveState('saving');
+
+    const promise = Promise.resolve(
       onSaveAnnotation?.({
-        type: thoughtType,
-        content: thoughtContent.trim(),
-      });
-      setIsEditingThought(false);
-    }
+        id: annotation?.id,
+        type: nextType,
+        content: nextContent,
+      })
+    ).then(
+      (result) => {
+        if (saveRevisionRef.current === revision) setSaveState('saved');
+        return result;
+      },
+      (err) => {
+        if (saveRevisionRef.current === revision) setSaveState('error');
+        throw err;
+      }
+    );
+
+    promise.catch(() => {});
+    latestSavePromiseRef.current = promise;
+    return promise;
   };
 
-  const handleDeleteThought = (e: React.MouseEvent) => {
+  const handleSaveThought = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onDeleteAnnotation?.();
-    setThoughtContent('');
     setIsEditingThought(false);
   };
 
-  // Trigger sync with debounce & immediate button feedback
+  const handleDeleteThought = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      const ok = await Promise.resolve(onDeleteAnnotation?.());
+      if (ok === false) {
+        setSaveState('error');
+        return;
+      }
+      setThoughtContent('');
+      setIsEditingThought(false);
+    } catch {
+      setSaveState('error');
+    }
+  };
+
   const handleSyncToNote = async (withScreenshot: boolean, e: React.MouseEvent) => {
     e.stopPropagation();
-    if (syncState !== 'idle') return; // Prevent double click duplicate!
-
-    // If user has typed something, save thought first
-    if (thoughtContent.trim() && (!annotation || annotation.content !== thoughtContent.trim())) {
-      onSaveAnnotation?.({
-        type: thoughtType,
-        content: thoughtContent.trim(),
-      });
-    }
+    if (syncState === 'loading') return;
 
     setSyncTarget(withScreenshot ? 'screenshot' : 'text');
     setSyncState('loading');
 
     try {
+      await latestSavePromiseRef.current;
       const res = await onInsertToNativeNote?.(withScreenshot);
-      if (res === true) {
+      if (res === 'injected') {
         setSyncState('success');
         setTimeout(() => {
           setSyncState('idle');
           setSyncTarget(null);
         }, 1500);
+      } else if (res === 'queued') {
+        setSyncState('queued');
       } else {
         setSyncState('error');
         setTimeout(() => {
@@ -131,7 +179,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
           setSyncTarget(null);
         }, 2000);
       }
-    } catch (_) {
+    } catch {
       setSyncState('error');
       setTimeout(() => {
         setSyncState('idle');
@@ -299,7 +347,10 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                 <button
                   key={chip.type}
                   type="button"
-                  onClick={() => setThoughtType(chip.type)}
+                  onClick={() => {
+                    setThoughtType(chip.type);
+                    persistThought(chip.type, thoughtContent);
+                  }}
                   className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
                     thoughtType === chip.type
                       ? 'bg-sky-500 text-white border-sky-500 font-semibold'
@@ -316,7 +367,11 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
             {/* Input textarea */}
             <textarea
               value={thoughtContent}
-              onChange={(e) => setThoughtContent(e.target.value)}
+              onChange={(e) => {
+                const nextContent = e.target.value;
+                setThoughtContent(nextContent);
+                persistThought(thoughtType, nextContent);
+              }}
               placeholder="写下你对本章节的启发、存疑或实践灵感..."
               rows={2}
               className={`w-full text-[11px] p-1.5 rounded border resize-none focus:outline-none focus:ring-1 focus:ring-sky-500 ${
@@ -325,6 +380,24 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                   : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
               }`}
             />
+
+            {saveState !== 'idle' && (
+              <div
+                className={`text-[10px] ${
+                  saveState === 'error'
+                    ? 'text-rose-400'
+                    : isDark
+                    ? 'text-slate-400'
+                    : 'text-slate-500'
+                }`}
+              >
+                {saveState === 'saving'
+                  ? '保存中…'
+                  : saveState === 'saved'
+                  ? '已自动保存到本地'
+                  : '本地保存失败，继续输入将重试'}
+              </div>
+            )}
 
             {/* Form actions with Bilibili Note Sync & Micro-Feedback */}
             <div className="flex items-center justify-between pt-1 border-t border-slate-700/20 flex-wrap gap-1">
@@ -354,26 +427,27 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
               </div>
 
               <div className="flex items-center gap-1 flex-wrap">
-                {/* 1. Save locally */}
+                {/* 1. Finish editing (all changes are auto-saved) */}
                 <button
                   type="button"
                   onClick={handleSaveThought}
-                  disabled={!thoughtContent.trim()}
-                  className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded bg-slate-700 text-white hover:bg-slate-600 disabled:opacity-50 cursor-pointer"
-                  title="仅保存到本地"
+                  className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded bg-slate-700 text-white hover:bg-slate-600 cursor-pointer"
+                  title="完成编辑"
                 >
                   <Check className="w-2.5 h-2.5" />
-                  <span>保存</span>
+                  <span>完成</span>
                 </button>
 
                 {/* 2. Pin to B站 Note */}
                 <button
                   type="button"
                   onClick={(e) => handleSyncToNote(false, e)}
-                  disabled={syncState !== 'idle'}
+                  disabled={syncState === 'loading'}
                   className={`inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-80 ${
                     syncState === 'success' && syncTarget === 'text'
                       ? 'bg-emerald-600 text-white'
+                      : syncState === 'queued' && syncTarget === 'text'
+                      ? 'bg-amber-600 text-white'
                       : syncState === 'error' && syncTarget === 'text'
                       ? 'bg-rose-600 text-white'
                       : isDark
@@ -390,7 +464,12 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                   ) : syncState === 'success' && syncTarget === 'text' ? (
                     <>
                       <Check className="w-2.5 h-2.5" />
-                      <span>已记入</span>
+                      <span>已写入</span>
+                    </>
+                  ) : syncState === 'queued' && syncTarget === 'text' ? (
+                    <>
+                      <Clock className="w-2.5 h-2.5" />
+                      <span>待同步</span>
                     </>
                   ) : syncState === 'error' && syncTarget === 'text' ? (
                     <>
@@ -409,10 +488,12 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                 <button
                   type="button"
                   onClick={(e) => handleSyncToNote(true, e)}
-                  disabled={syncState !== 'idle'}
+                  disabled={syncState === 'loading'}
                   className={`inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-80 ${
                     syncState === 'success' && syncTarget === 'screenshot'
                       ? 'bg-emerald-600 text-white'
+                      : syncState === 'queued' && syncTarget === 'screenshot'
+                      ? 'bg-amber-600 text-white'
                       : syncState === 'error' && syncTarget === 'screenshot'
                       ? 'bg-rose-600 text-white'
                       : isDark
@@ -429,7 +510,12 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                   ) : syncState === 'success' && syncTarget === 'screenshot' ? (
                     <>
                       <Check className="w-2.5 h-2.5" />
-                      <span>已记入</span>
+                      <span>已写入</span>
+                    </>
+                  ) : syncState === 'queued' && syncTarget === 'screenshot' ? (
+                    <>
+                      <Clock className="w-2.5 h-2.5" />
+                      <span>待同步</span>
                     </>
                   ) : syncState === 'error' && syncTarget === 'screenshot' ? (
                     <>

@@ -33,10 +33,24 @@ export interface TranscriptChunk {
   text: string;
 }
 
+export interface TranscriptWindow {
+  startTime: number;
+  endTime: number;
+  timestampStr: string;
+  items: BiliRawSubtitleItem[];
+  text: string;
+}
+
 export interface OriginalQuote {
   timestamp: number;     // Start seconds
   timestampStr: string;  // "mm:ss"
   content: string;       // Original transcript content
+}
+
+export interface MapPhaseResult {
+  summary: string;
+  keyPoints: Array<{ timestamp: number; timestampStr: string; text: string }>;
+  punchlineQuotes: OriginalQuote[];
 }
 
 export interface HighlightItem {
@@ -56,7 +70,11 @@ export interface VideoSummaryResult {
   oneSentenceSummary: string;
   highlights: HighlightItem[];
   followUpQuestions?: string[];
+  glossary?: Array<{ term: string; definition: string }>;
+  actionableTakeaways?: string[];
+  punchlineQuotes?: OriginalQuote[];
   createdAt: number;
+  schemaVersion: 2;
   usedModel?: string;    // Actual model used (useful when fallback triggered)
   usedProviderName?: string; // Actual provider name used (useful when cross-provider fallback triggered)
   isFallbackUsed?: boolean;
@@ -68,6 +86,13 @@ export interface ResolvedVideoInfo {
   aid: string;
   title: string;
   duration: number;
+  description?: string;
+}
+
+export interface VideoPreflightMetadata {
+  officialChapters?: Array<{ from: number; to: number; title: string }>;
+  danmakuHeatmapPeaks?: Array<{ timestampSec: number; densityRatio: number }>;
+  descriptionTimestamps?: Array<{ seconds: number; title: string }>;
 }
 
 // ------------------------------------------

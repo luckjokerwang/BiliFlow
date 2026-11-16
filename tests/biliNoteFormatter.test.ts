@@ -45,6 +45,7 @@ describe('biliNoteFormatter', () => {
       },
     ],
     createdAt: 1700000000000,
+    schemaVersion: 2,
   };
 
   describe('getTypeLabel', () => {

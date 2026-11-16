@@ -1,4 +1,4 @@
-import { HighlightItem, OriginalQuote } from '../types';
+import { BiliRawSubtitleItem, HighlightItem, OriginalQuote } from '../types';
 import { parseTimestamp, formatSeconds } from './timeParser';
 
 export interface TimelineMarker {
@@ -209,4 +209,35 @@ export function calculateTimelineSegments(
   }
 
   return segments;
+}
+
+/**
+ * Finds the active full-transcript sentence for the current playback second.
+ * Uses the last utterance whose start is at or before currentSec so gaps keep
+ * the previous sentence highlighted until the next one starts.
+ */
+export function findActiveTranscriptIndex(
+  items: BiliRawSubtitleItem[],
+  currentSec: number
+): number {
+  if (!Array.isArray(items) || items.length === 0 || !Number.isFinite(currentSec)) {
+    return -1;
+  }
+  if (currentSec < items[0].from) return -1;
+
+  let left = 0;
+  let right = items.length - 1;
+  let result = -1;
+
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    if (items[mid].from <= currentSec) {
+      result = mid;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+
+  return result;
 }
