@@ -4,7 +4,7 @@ import { Clock } from 'lucide-react';
 
 interface TimelineMarkersProps {
   markers: TimelineMarker[];
-  onSeek: (seconds: number) => void;
+  onSeek: (marker: TimelineMarker) => void;
 }
 
 export const TimelineMarkers: React.FC<TimelineMarkersProps> = ({ markers, onSeek }) => {
@@ -22,7 +22,7 @@ export const TimelineMarkers: React.FC<TimelineMarkersProps> = ({ markers, onSee
           onClick={(e) => {
             e.stopPropagation();
             e.preventDefault();
-            onSeek(marker.timestampSec);
+            onSeek(marker);
           }}
         />
       ))}

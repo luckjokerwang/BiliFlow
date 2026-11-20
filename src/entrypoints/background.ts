@@ -6,6 +6,7 @@ import {
   fetchBilibiliSubtitles,
   fetchVideoPreflightMetadata,
 } from '../services/bilibiliApi';
+import { fetchCommunityDigest } from '../services/communityService';
 import {
   generateVideoSummary,
   fetchRemoteModels,
@@ -228,6 +229,11 @@ export default defineBackground(() => {
             browser.tabs.create({ url: browser.runtime.getURL('/options.html') });
           }
           return { success: true, data: null };
+        }
+
+        case 'FETCH_COMMUNITY_DIGEST': {
+          const digest = await fetchCommunityDigest(message.payload);
+          return { success: true, data: digest };
         }
 
         default: {

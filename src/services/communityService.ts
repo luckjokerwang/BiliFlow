@@ -1,0 +1,214 @@
+import {
+  CommunityCommentItem,
+  CommunityDanmakuItem,
+  CommunityDigest,
+} from '../types';
+import {
+  buildBiliUrl,
+  fetchDanmakuHeatmapPeaks,
+  fetchJsonWithTimeout,
+  makeHeaders,
+} from './bilibiliApi';
+import {
+  normalizeComment,
+  rankFeaturedComments,
+  selectFeaturedDanmaku,
+} from '../utils/communityRanking';
+import { parseDanmakuXml } from '../utils/danmakuXml';
+
+type UnknownRecord = Record<string, unknown>;
+
+export interface FetchCommunityDigestPayload {
+  bvid: string;
+  cid: string;
+  aid: string;
+  durationSec: number;
+}
+
+interface CommentSortResult {
+  replies: unknown[];
+  upperTop: unknown[];
+  topReplies: unknown[];
+  total: number | null;
+}
+
+function asRecord(value: unknown): UnknownRecord | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as UnknownRecord)
+    : null;
+}
+
+function isHiddenReply(reply: unknown): boolean {
+  const record = asRecord(reply);
+  if (!record) return true;
+  if (record.state === 17 || record.invisible === true) return true;
+  return false;
+}
+
+async function fetchCommentSort(
+  bvid: string,
+  aid: string,
+  sort: 1 | 2
+): Promise<CommentSortResult> {
+  const url = buildBiliUrl('/x/v2/reply', {
+    type: '1',
+    oid: aid,
+    sort: String(sort),
+    ps: '20',
+    pn: '1',
+    nohot: '1',
+  });
+  const data = await fetchJsonWithTimeout<UnknownRecord>(url, makeHeaders(bvid));
+  if (data.code !== 0) throw new Error(`评论接口返回 ${data.code}`);
+  const responseData = asRecord(data.data) || {};
+  const page = asRecord(responseData.page);
+  const total = page && typeof page.count === 'number' && Number.isFinite(page.count)
+    ? page.count
+    : null;
+  const replies = Array.isArray(responseData.replies)
+    ? responseData.replies.filter((reply) => !isHiddenReply(reply))
+    : [];
+  const upper = asRecord(responseData.upper);
+  const upperTop = upper && Array.isArray(upper.top)
+    ? upper.top.filter((reply) => !isHiddenReply(reply))
+    : [];
+  const topReplies = Array.isArray(responseData.top_replies)
+    ? responseData.top_replies.filter((reply) => !isHiddenReply(reply))
+    : [];
+  return { replies, upperTop, topReplies, total };
+}
+
+async function fetchComments(
+  bvid: string,
+  aid: string
+): Promise<{ comments: CommunityCommentItem[]; total: number | null; error?: string }> {
+  if (!aid) {
+    return { comments: [], total: null, error: '缺少视频 aid，无法加载评论' };
+  }
+  // Sequential first-page requests reduce the chance of Bilibili rate limiting.
+  const likeResult = await fetchCommentSort(bvid, aid, 1).then(
+    (value) => ({ ok: true as const, value }),
+    (reason) => ({ ok: false as const, reason })
+  );
+  const replyResult = await fetchCommentSort(bvid, aid, 2).then(
+    (value) => ({ ok: true as const, value }),
+    (reason) => ({ ok: false as const, reason })
+  );
+
+  if (!likeResult.ok && !replyResult.ok) {
+    throw new Error('评论数据加载失败');
+  }
+
+  const total = likeResult.ok
+    ? likeResult.value.total
+    : replyResult.ok
+    ? replyResult.value.total
+    : null;
+
+  const seen = new Set<string>();
+  const candidates: CommunityCommentItem[] = [];
+  const add = (raw: unknown, pinned: boolean) => {
+    const normalized = normalizeComment(raw, pinned);
+    if (!normalized || seen.has(normalized.id)) return;
+    seen.add(normalized.id);
+    const { raw: _raw, fromPinnedUpper: _pinned, ...item } = normalized;
+    candidates.push(item);
+  };
+
+  for (const result of [likeResult, replyResult]) {
+    if (!result.ok) continue;
+    result.value.upperTop.forEach((raw) => add(raw, true));
+    result.value.topReplies.forEach((raw) => add(raw, true));
+    result.value.replies.forEach((raw) => add(raw, false));
+  }
+
+  return {
+    comments: rankFeaturedComments(candidates),
+    total,
+    error: !likeResult.ok || !replyResult.ok ? '部分评论排序加载失败' : undefined,
+  };
+}
+
+async function fetchDanmakuText(bvid: string, cid: string): Promise<string> {
+  const url = buildBiliUrl('/x/v1/dm/list.so', { oid: cid });
+  const response = await fetch(url, {
+    headers: { ...makeHeaders(bvid), Accept: 'application/xml, text/xml, */*' },
+    credentials: 'include',
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  return response.text();
+}
+
+export async function fetchCommunityDigest(
+  payload: FetchCommunityDigestPayload
+): Promise<CommunityDigest> {
+  const { bvid, cid, aid, durationSec } = payload;
+  if (!bvid || !cid) throw new Error('缺少视频标识参数 (bvid 或 cid 为空)');
+
+  const errors: CommunityDigest['errors'] = {};
+
+  const [commentsResult, danmakuResult] = await Promise.allSettled([
+    fetchComments(bvid, aid),
+    (async () => {
+      const [xmlResult, heatResult] = await Promise.allSettled([
+        fetchDanmakuText(bvid, cid),
+        fetchDanmakuHeatmapPeaks({ bvid, cid, aid }),
+      ]);
+      if (xmlResult.status === 'rejected') throw xmlResult.reason;
+      const parsed = parseDanmakuXml(xmlResult.value, durationSec);
+      const peaks = heatResult.status === 'fulfilled' ? heatResult.value || [] : [];
+      return {
+        danmaku: selectFeaturedDanmaku(
+          parsed.map((item) => ({
+            id: item.id,
+            content: item.content,
+            timestampSec: item.timestampSec,
+            resonanceCount: 1,
+            heatRatio: 0,
+          })),
+          peaks
+        ),
+        sampleCount: parsed.length,
+        heatError: heatResult.status === 'rejected',
+      };
+    })(),
+  ]);
+
+  if (commentsResult.status === 'rejected' && danmakuResult.status === 'rejected') {
+    throw new Error('社区精选数据加载失败');
+  }
+
+  let comments: CommunityCommentItem[] = [];
+  let commentTotal: number | null = null;
+  if (commentsResult.status === 'fulfilled') {
+    comments = commentsResult.value.comments;
+    commentTotal = commentsResult.value.total;
+    if (commentsResult.value.error) errors.comments = commentsResult.value.error;
+  } else {
+    errors.comments = '评论数据加载失败';
+  }
+
+  let danmaku: CommunityDanmakuItem[] = [];
+  let danmakuSampleCount = 0;
+  if (danmakuResult.status === 'fulfilled') {
+    danmaku = danmakuResult.value.danmaku;
+    danmakuSampleCount = danmakuResult.value.sampleCount;
+    if (danmakuResult.value.heatError) {
+      errors.danmaku = '弹幕热度不可用，已按共鸣度排序';
+    }
+  } else {
+    errors.danmaku = '实时弹幕池加载失败';
+  }
+
+  return {
+    bvid,
+    cid,
+    aid,
+    comments,
+    danmaku,
+    commentTotal,
+    danmakuSampleCount,
+    errors,
+    fetchedAt: Date.now(),
+  };
+}

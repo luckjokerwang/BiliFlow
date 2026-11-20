@@ -1,12 +1,18 @@
 import { useState, useEffect } from 'react';
 import { UserSettings } from '../../../types/settings';
 import { isUserTyping } from '../../../utils/playerController';
+import {
+  HudViewMode,
+  getNextHudViewMode,
+  isViewSwitchTabKey,
+} from '../../../utils/hudNavigation';
 
 export interface UseFullscreenDetectorProps {
   settings: UserSettings;
   isOpen: boolean;
   onToggleOpen: () => void;
-  isTranscriptMode?: boolean;
+  viewMode: HudViewMode;
+  onViewModeChange: (mode: HudViewMode) => void;
   onClose: () => void;
   onPrevHighlight?: () => void;
   onNextHighlight?: () => void;
@@ -51,7 +57,8 @@ export function matchesShortcut(e: KeyboardEvent, shortcutStr?: string): boolean
 export function useFullscreenDetector({
   settings,
   isOpen,
-  isTranscriptMode,
+  viewMode,
+  onViewModeChange,
   onToggleOpen,
   onClose,
   onPrevHighlight,
@@ -131,8 +138,16 @@ export function useFullscreenDetector({
         return;
       }
 
-      // Highlight-specific navigation is not meaningful while the full transcript is shown.
-      if (isTranscriptMode) {
+      // Tab switches HUD views when expanded (Shift+Tab reverses).
+      if (isViewSwitchTabKey(e)) {
+        e.preventDefault();
+        e.stopPropagation();
+        onViewModeChange(getNextHudViewMode(viewMode, e.shiftKey));
+        return;
+      }
+
+      // Highlight-specific navigation is not meaningful outside the summary view.
+      if (viewMode !== 'summary') {
         return;
       }
 
@@ -184,7 +199,8 @@ export function useFullscreenDetector({
   }, [
     settings,
     isOpen,
-    isTranscriptMode,
+    viewMode,
+    onViewModeChange,
     onToggleOpen,
     onClose,
     onPrevHighlight,

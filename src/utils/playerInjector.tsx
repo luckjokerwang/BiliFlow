@@ -57,7 +57,7 @@ export function renderTimelineMarkers(
   segments: TimelineSegment[] = [],
   duration: number = 0,
   flags: PlayerInjectionFlags = { showTimelineMarkers: true, showHoverCard: true },
-  onCustomSeek?: (sec: number) => void
+  onCustomSeek?: (marker: TimelineMarker) => void
 ): void {
   const showMarkers = flags.showTimelineMarkers !== false;
   const showCard = flags.showHoverCard !== false;
@@ -117,7 +117,7 @@ export function renderTimelineMarkers(
           <React.StrictMode>
             <TimelineMarkers
               markers={markers}
-              onSeek={onCustomSeek || seekToSeconds}
+              onSeek={onCustomSeek || ((marker: TimelineMarker) => seekToSeconds(marker.timestampSec))}
             />
           </React.StrictMode>
         );

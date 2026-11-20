@@ -1,7 +1,6 @@
 import React from 'react';
 import { Zap, ShieldCheck, RefreshCw, Settings, X, Copy, BookOpen } from 'lucide-react';
-
-export type HudViewMode = 'summary' | 'transcript';
+import { HudViewMode } from '../../../utils/hudNavigation';
 
 export interface HUDHeaderProps {
   isDark: boolean;
@@ -38,21 +37,26 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
   pendingNoteSyncCount = 0,
   onRetryNoteSync,
 }) => {
-  const refreshLabel = viewMode === 'transcript' ? '重新加载全文字幕' : '重新提炼视频';
+  const refreshLabel =
+    viewMode === 'community'
+      ? '重新加载社区精选'
+      : viewMode === 'transcript'
+      ? '重新加载全文字幕'
+      : '重新提炼视频';
 
   return (
     <div
-      className={`flex flex-col border-b select-none shrink-0 ${
+      className={`flex flex-col border-b select-none shrink-0 [&_button]:outline-none [&_button]:focus:outline-none [&_button]:focus-visible:ring-2 [&_button]:focus-visible:ring-sky-400/60 ${
         isDark ? 'border-slate-800' : 'border-slate-100'
       }`}
     >
-      <div className="p-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white shadow-md shadow-sky-500/20">
+      <div className="p-3.5 pb-2 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="p-1.5 rounded-xl bg-gradient-to-tr from-sky-500 to-cyan-400 text-white shadow-md shadow-sky-500/20 shrink-0">
             <Zap className="w-4 h-4 fill-current" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
               <span
                 className={`text-sm font-bold tracking-tight ${
                   isDark ? 'text-white' : 'text-slate-900'
@@ -74,14 +78,6 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
                 >
                   {shortcut}
                 </kbd>
-              )}
-              {isFallbackUsed && (
-                <span
-                  className="inline-flex items-center gap-0.5 text-[9px] font-mono px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-400 font-semibold"
-                  title={`容灾兜底生效中 (${usedModel || '备用模型'})`}
-                >
-                  <ShieldCheck className="w-2.5 h-2.5" /> 容灾兜底
-                </span>
               )}
             </div>
           </div>
@@ -172,18 +168,36 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
           </button>
         </div>
       </div>
+      {isFallbackUsed && (
+        <div className="px-3.5 pb-1.5 -mt-0.5">
+          <span
+            className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold whitespace-nowrap"
+            title={`容灾兜底生效中 (${usedModel || '备用模型'})`}
+          >
+            <ShieldCheck className="w-2.5 h-2.5 shrink-0" /> 容灾兜底 · {usedModel || '备用模型'}
+          </span>
+        </div>
+      )}
+
 
       <div className="px-3.5 pb-2.5 flex items-center gap-1">
-        {(['summary', 'transcript'] as const).map((mode) => {
+        {(['summary', 'transcript', 'community'] as const).map((mode) => {
           const isActive = viewMode === mode;
-          const label = mode === 'summary' ? '⚡ AI 精读要点' : '📜 全文字幕心流';
+          const label =
+            mode === 'summary'
+              ? '⚡ AI 精读要点'
+              : mode === 'transcript'
+              ? '📜 全文字幕心流'
+              : '💬 社区精选';
           return (
             <button
               key={mode}
               type="button"
               onClick={() => onViewModeChange(mode)}
               aria-pressed={isActive}
-              className={`flex-1 px-2 py-1.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer ${
+              aria-keyshortcuts="Tab Shift+Tab"
+              title={`${label} · 按 Tab / Shift+Tab 切换视图`}
+              className={`flex-1 min-w-0 px-1.5 py-1.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
                 isActive
                   ? 'bg-sky-500 text-white'
                   : isDark

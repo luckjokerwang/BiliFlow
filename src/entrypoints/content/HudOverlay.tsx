@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { browser } from 'wxt/browser';
 import { Loader2, AlertCircle, RotateCcw, FileText, Settings } from 'lucide-react';
-import { HighlightItem } from '../../types';
+import { HighlightItem, HudViewMode } from '../../types';
+import { alignElementInViewport } from '../../utils/scrollPositioning';
 import {
   calculateTimelineMarkers,
   calculateTimelineSegments,
@@ -21,13 +22,14 @@ import { useAutoSummary } from './hooks/useAutoSummary';
 import { useVideoController } from './hooks/useVideoController';
 import { useFullscreenDetector } from './hooks/useFullscreenDetector';
 import { useAnnotations } from './hooks/useAnnotations';
-
+import { useCommunityDigest } from './hooks/useCommunityDigest';
 import { HUDHeader } from './components/HUDHeader';
 import { HighlightList } from './components/HighlightList';
 import { ManualTriggerPanel } from './components/ManualTriggerPanel';
 import { HUDToast } from './components/HUDToast';
 import { TranscriptStream } from './components/TranscriptStream';
 import { SummaryArtifacts } from './components/SummaryArtifacts';
+import { CommunityDigestView } from './components/CommunityDigestView';
 
 export const HudOverlay: React.FC = () => {
   const { settings, isReady } = useSettings();
@@ -35,8 +37,7 @@ export const HudOverlay: React.FC = () => {
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string | number>>(new Set());
-  const [viewMode, setViewMode] = useState<'summary' | 'transcript'>('summary');
-
+  const [viewMode, setViewMode] = useState<HudViewMode>('summary');
   // Scroll tracking refs
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -95,82 +96,81 @@ export const HudOverlay: React.FC = () => {
     seekTo,
     markUserManualAction,
     isUserManualActionActive,
+    recordCurrentPosition,
+    getResumeSeconds,
   } = useVideoController({
+    bvid: videoInfo?.bvid,
+    cid: videoInfo?.cid,
     highlights: summary?.highlights || [],
   });
 
-  // Center active highlight in scroll view with visibility awareness
+  const {
+    digest: communityDigest,
+    loading: communityLoading,
+    error: communityError,
+    retry: retryCommunity,
+  } = useCommunityDigest({
+    videoInfo,
+    enabled: isOpen && viewMode === 'community',
+  });
+
+  // Scroll context tracks (bvid, cid, viewMode) so reopening/switching views
+  // forces an instant alignment instead of animating from a stale position.
+  const lastSummaryScrollContextRef = useRef<string | null>(null);
+  const summaryScrollContext = `${videoInfo?.bvid ?? ''}:${videoInfo?.cid ?? ''}:${viewMode}`;
+
   const scrollToActiveItem = useCallback(
-    (
-      index: number,
-      forceCenter: boolean = false,
-      behavior: ScrollBehavior = 'smooth'
-    ) => {
+    (index: number, behavior: ScrollBehavior = 'smooth', onlyIfOutside = false) => {
       requestAnimationFrame(() => {
         const container = scrollContainerRef.current;
         const targetEl = itemRefs.current[index];
         if (!container || !targetEl) return;
-
-        const containerRect = container.getBoundingClientRect();
-        const targetRect = targetEl.getBoundingClientRect();
-
-        // If not forcing center, check if the card is already comfortably visible
-        // with safety margins from top (8px) and bottom (8px)
-        if (!forceCenter) {
-          const isComfortablyVisible =
-            targetRect.top >= containerRect.top + 8 &&
-            targetRect.bottom <= containerRect.bottom - 8;
-
-          if (isComfortablyVisible) {
-            return;
-          }
-        }
-
-        const relativeTop = targetRect.top - containerRect.top + container.scrollTop;
-        const targetScrollTop = Math.max(
-          0,
-          relativeTop - container.clientHeight / 2 + targetEl.clientHeight / 2
-        );
-
-        container.scrollTo({
-          top: targetScrollTop,
-          behavior,
-        });
+        alignElementInViewport(container, targetEl, { behavior, onlyIfOutside });
       });
     },
     []
   );
 
-  // Focus and center current active highlight whenever HUD is opened or shown
+  // Close / view switch clears the context so the next summary display aligns instantly.
   useEffect(() => {
-    if (isOpen && viewMode === 'summary' && summary?.highlights && summary.highlights.length > 0 && activeHighlightIndex >= 0) {
-      setSelectedIndex(activeHighlightIndex);
-      // Double RAF ensures newly mounted DOM nodes have finished layout & measurement
-      let cancelled = false;
+    if (!isOpen || viewMode !== 'summary') {
+      lastSummaryScrollContextRef.current = null;
+    }
+  }, [isOpen, viewMode]);
+
+  // Main summary positioning: instant on context change, gentle follow otherwise.
+  useEffect(() => {
+    if (!isOpen || viewMode !== 'summary') return;
+    if (!summary?.highlights?.length || activeHighlightIndex < 0) return;
+
+    setSelectedIndex(activeHighlightIndex);
+    let cancelled = false;
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (!cancelled) {
-            scrollToActiveItem(activeHighlightIndex, true, 'auto');
-          }
-        });
+        if (cancelled) return;
+        const needsInstantAlign =
+          lastSummaryScrollContextRef.current !== summaryScrollContext;
+        if (needsInstantAlign) {
+          lastSummaryScrollContextRef.current = summaryScrollContext;
+          scrollToActiveItem(activeHighlightIndex, 'auto');
+        } else if (!isUserManualActionActive()) {
+          scrollToActiveItem(activeHighlightIndex, 'smooth', true);
+        }
       });
+    });
 
-      return () => {
-        cancelled = true;
-      };
-    }
-  }, [isOpen, viewMode, activeHighlightIndex, summary?.highlights?.length, scrollToActiveItem]);
-
-  // Sync selected index and smoothly follow active highlight node during playback
-  useEffect(() => {
-    if (activeHighlightIndex >= 0 && summary?.highlights && summary.highlights.length > 0) {
-      setSelectedIndex(activeHighlightIndex);
-      // Auto-follow during natural playback if user isn't actively manual-scrolling
-      if (isOpen && viewMode === 'summary' && !isUserManualActionActive()) {
-        scrollToActiveItem(activeHighlightIndex, false, 'smooth');
-      }
-    }
-  }, [activeHighlightIndex, summary, scrollToActiveItem, isUserManualActionActive, isOpen, viewMode]);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isOpen,
+    viewMode,
+    summaryScrollContext,
+    activeHighlightIndex,
+    summary?.highlights?.length,
+    scrollToActiveItem,
+    isUserManualActionActive,
+  ]);
 
   // Recalibrate scroll view when returning to tab
   useEffect(() => {
@@ -179,12 +179,11 @@ export const HudOverlay: React.FC = () => {
         viewMode === 'summary' &&
         document.visibilityState === 'visible' &&
         isOpen &&
-        summary?.highlights &&
-        summary.highlights.length > 0 &&
+        summary?.highlights?.length &&
         activeHighlightIndex >= 0
       ) {
         requestAnimationFrame(() => {
-          scrollToActiveItem(activeHighlightIndex, false, 'smooth');
+          scrollToActiveItem(activeHighlightIndex, 'auto');
         });
       }
     };
@@ -195,24 +194,31 @@ export const HudOverlay: React.FC = () => {
     };
   }, [isOpen, viewMode, activeHighlightIndex, summary, scrollToActiveItem]);
 
+  // Only keep the active highlight's original quotes expanded during playback.
+  useEffect(() => {
+    if (!summary?.highlights?.length || activeHighlightIndex < 0) return;
+    const activeId = summary.highlights[activeHighlightIndex]?.id;
+    setExpandedQuoteIds((prev) => {
+      if (prev.size === 0 || (prev.size === 1 && prev.has(activeId))) return prev;
+      return prev.has(activeId) ? new Set([activeId]) : new Set();
+    });
+  }, [activeHighlightIndex, summary?.highlights]);
+
   // Jump to specific highlight
   const handleJump = useCallback(
     (highlight: HighlightItem, index: number) => {
       markUserManualAction();
+      recordCurrentPosition();
       setSelectedIndex(index);
-      scrollToActiveItem(index, true);
+      scrollToActiveItem(index, 'smooth');
 
-      const targetSeconds =
-        typeof highlight.timestamp === 'number'
-          ? highlight.timestamp
-          : (highlight.timestampSec ?? 0);
-
+      const targetSeconds = getResumeSeconds(index);
       const success = seekTo(targetSeconds);
       if (success) {
         showToast(`已直达: [${highlight.timestampStr}] ${highlight.title}`);
       }
     },
-    [seekTo, markUserManualAction, scrollToActiveItem, showToast]
+    [seekTo, markUserManualAction, recordCurrentPosition, getResumeSeconds, scrollToActiveItem, showToast]
   );
 
   // Quote expansion toggling
@@ -229,9 +235,10 @@ export const HudOverlay: React.FC = () => {
 
   // Hook 4: Fullscreen & Global Keyboard Shortcuts
   useFullscreenDetector({
-    settings,
     isOpen,
-    isTranscriptMode: viewMode === 'transcript',
+    settings,
+    viewMode,
+    onViewModeChange: setViewMode,
     onToggleOpen: () => {
       window.dispatchEvent(new CustomEvent('biliflow:ensure-mount'));
       setIsOpen((prev) => !prev);
@@ -299,9 +306,10 @@ export const HudOverlay: React.FC = () => {
             showTimelineMarkers: settings.showTimelineMarkers,
             showHoverCard: settings.showHoverCard,
           },
-          (sec) => {
-            seekTo(sec);
-            showToast('已跳转至选定亮点');
+          (marker) => {
+            const index = marker.index - 1;
+            const highlight = summary?.highlights?.[index];
+            if (highlight) handleJump(highlight, index);
           }
         );
       } else {
@@ -321,7 +329,7 @@ export const HudOverlay: React.FC = () => {
     duration,
     settings.showTimelineMarkers,
     settings.showHoverCard,
-    seekTo,
+    handleJump,
     showToast,
   ]);
 
@@ -375,7 +383,13 @@ export const HudOverlay: React.FC = () => {
           {/* Header */}
           <HUDHeader
             isDark={isDark}
-            loading={viewMode === 'summary' ? loading : transcriptLoading}
+            loading={
+              viewMode === 'community'
+                ? communityLoading
+                : viewMode === 'transcript'
+                ? transcriptLoading
+                : loading
+            }
             isFallbackUsed={summary?.isFallbackUsed}
             usedModel={summary?.usedModel}
             hasSummary={Boolean(summary?.highlights?.length)}
@@ -383,7 +397,9 @@ export const HudOverlay: React.FC = () => {
             viewMode={viewMode}
             onViewModeChange={setViewMode}
             onRefresh={() => {
-              if (viewMode === 'transcript') {
+              if (viewMode === 'community') {
+                retryCommunity();
+              } else if (viewMode === 'transcript') {
                 void retryTranscript();
               } else {
                 void retrySummary();
@@ -405,7 +421,7 @@ export const HudOverlay: React.FC = () => {
               ref={scrollContainerRef}
               onWheel={markUserManualAction}
               onTouchMove={markUserManualAction}
-              className="flex-1 min-h-0 p-4 overflow-y-auto scroll-smooth space-y-3.5"
+              className="flex-1 min-h-0 p-4 overflow-y-auto space-y-3.5"
             >
               {/* Loading State */}
               {loading && (
@@ -531,8 +547,24 @@ export const HudOverlay: React.FC = () => {
                     }}
                     itemRefs={itemRefs}
                   />
+                  <div aria-hidden="true" className="shrink-0 h-[min(380px,65vh)]" />
                 </>
               )}
+            </div>
+          ) : viewMode === 'community' ? (
+            <div className="flex-1 min-h-0 flex flex-col p-4">
+              <CommunityDigestView
+                isDark={isDark}
+                digest={communityDigest}
+                loading={communityLoading}
+                error={communityError}
+                onRetry={retryCommunity}
+                onSeek={(seconds) => {
+                  markUserManualAction();
+                  seekTo(seconds);
+                  showToast('已跳转至高能弹幕');
+                }}
+              />
             </div>
           ) : (
             <div className="flex-1 min-h-0 flex flex-col p-4">

@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Quote, Volume2 } from 'lucide-react';
 import { OriginalQuote } from '../../../types';
 import { findActiveQuoteIndex } from '../../../utils/timelineCalculator';
+import { alignElementInViewport } from '../../../utils/scrollPositioning';
 
 export interface OriginalQuotesListProps {
   isDark: boolean;
@@ -23,24 +24,19 @@ export const OriginalQuotesList: React.FC<OriginalQuotesListProps> = ({
   const activeQuoteIndex = findActiveQuoteIndex(quotes, currentPlaybackSec);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const activeItemRef = useRef<HTMLDivElement | null>(null);
+  const hasInitialPositionedRef = useRef(false);
 
-  // Smoothly center active quote in the quotes container so both preceding and following lines remain visible
+  // Instantly align on mount; later follow only when the active line leaves view.
   useEffect(() => {
-    if (activeQuoteIndex >= 0 && activeItemRef.current && containerRef.current) {
-      const container = containerRef.current;
-      const target = activeItemRef.current;
-      const relativeTop = target.offsetTop - container.offsetTop;
-      const targetScrollTop = Math.max(
-        0,
-        relativeTop - container.clientHeight / 2 + target.clientHeight / 2
-      );
-
-      container.scrollTo({
-        top: targetScrollTop,
-        behavior: 'smooth',
-      });
-    }
+    if (activeQuoteIndex < 0 || !activeItemRef.current || !containerRef.current) return;
+    const behavior: ScrollBehavior = hasInitialPositionedRef.current ? 'smooth' : 'auto';
+    hasInitialPositionedRef.current = true;
+    alignElementInViewport(containerRef.current, activeItemRef.current, {
+      behavior,
+      onlyIfOutside: behavior === 'smooth',
+    });
   }, [activeQuoteIndex]);
+
   return (
     <div
       className={`mt-2 p-2.5 rounded-xl border text-[11px] space-y-1.5 transition-all select-text ${
@@ -67,7 +63,7 @@ export const OriginalQuotesList: React.FC<OriginalQuotesListProps> = ({
       {/* Quotes Scrollable Container with centered active positioning */}
       <div
         ref={containerRef}
-        className="relative space-y-1 max-h-[210px] overflow-y-auto pr-1 scroll-smooth"
+        className="relative space-y-1 max-h-[210px] overflow-y-auto pr-1"
       >
         {quotes.map((quote, qIdx) => {
           const isQuoteActive = activeQuoteIndex === qIdx;

@@ -95,6 +95,15 @@ export interface VideoPreflightMetadata {
   descriptionTimestamps?: Array<{ seconds: number; title: string }>;
 }
 
+
+// Per-highlight playback resume position
+export interface HighlightPlaybackPosition {
+  positionSec: number;
+  updatedAt: number;
+}
+export type VideoPlaybackPositions = Record<string, HighlightPlaybackPosition>;
+// HUD navigation
+export type { HudViewMode } from '../utils/hudNavigation';
 // ------------------------------------------
 // Multi-Provider & Model Hub (Two-Tier Architecture)
 // ------------------------------------------
@@ -137,6 +146,7 @@ export interface CacheStats {
 }
 
 export * from './settings';
+export * from './community';
 export * from './biliNote';
 
 // ------------------------------------------
@@ -155,7 +165,8 @@ export type MessageType =
   | 'OPEN_OPTIONS_PAGE'
   | 'GET_CACHE_STATS'
   | 'CLEAR_CACHE'
-  | 'DELETE_CACHED_SUMMARY';
+  | 'DELETE_CACHED_SUMMARY'
+  | 'FETCH_COMMUNITY_DIGEST';
 
 export interface ExtensionMessage<T = any> {
   type: MessageType;

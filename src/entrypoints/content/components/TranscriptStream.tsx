@@ -3,6 +3,7 @@ import { AlertCircle, Loader2, Search, Volume2 } from 'lucide-react';
 import { BiliRawSubtitleItem } from '../../../types';
 import { formatSeconds } from '../../../utils/timeParser';
 import { findActiveTranscriptIndex } from '../../../utils/timelineCalculator';
+import { alignElementInViewport } from '../../../utils/scrollPositioning';
 import {
   filterTranscriptItems,
   TranscriptSearchMatch,
@@ -94,6 +95,7 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
   onManualInteraction,
 }) => {
   const [query, setQuery] = useState<string>('');
+  const hasInitialPositionedRef = useRef(false);
   const listRef = useRef<HTMLDivElement | null>(null);
 
   const activeIndex = useMemo(
@@ -106,8 +108,13 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
   );
   const hasSearch = query.trim().length > 0;
 
+  // Position on first mount instantly; follow later only when out of comfort zone.
   useEffect(() => {
-    if (!shouldAutoFollow || hasSearch || activeIndex < 0) return;
+    if (hasSearch) {
+      hasInitialPositionedRef.current = false;
+      return;
+    }
+    if (activeIndex < 0) return;
 
     let innerFrame = 0;
     const outerFrame = requestAnimationFrame(() => {
@@ -118,14 +125,15 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
         );
         if (!container || !target) return;
 
-        const targetScrollTop = Math.max(
-          0,
-          target.offsetTop -
-            container.offsetTop -
-            container.clientHeight / 2 +
-            target.clientHeight / 2
-        );
-        container.scrollTo({ top: targetScrollTop, behavior: 'smooth' });
+        if (!hasInitialPositionedRef.current) {
+          hasInitialPositionedRef.current = true;
+          alignElementInViewport(container, target, { behavior: 'auto' });
+        } else if (shouldAutoFollow) {
+          alignElementInViewport(container, target, {
+            behavior: 'smooth',
+            onlyIfOutside: true,
+          });
+        }
       });
     });
 
@@ -208,7 +216,7 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
           ref={listRef}
           onWheel={onManualInteraction}
           onTouchMove={onManualInteraction}
-          className="flex-1 min-h-0 mt-2 pr-1 space-y-1 overflow-y-auto scroll-smooth"
+          className="flex-1 min-h-0 mt-2 pr-1 space-y-1 overflow-y-auto"
         >
           {matches.length === 0 ? (
             <p className="py-8 text-center text-[11px] text-slate-400">
@@ -227,6 +235,7 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
               />
             ))
           )}
+          <div aria-hidden="true" className="shrink-0 h-[min(380px,65vh)]" />
         </div>
       )}
     </div>

@@ -9,9 +9,12 @@ import {
   findActiveHighlightIndex,
   findActiveQuoteIndex,
 } from '../../../utils/timelineCalculator';
+import { usePlaybackPositionHistory } from './usePlaybackPositionHistory';
 
 export interface UseVideoControllerProps {
   highlights: HighlightItem[];
+  bvid?: string;
+  cid?: string;
 }
 
 export interface UseVideoControllerReturn {
@@ -22,10 +25,14 @@ export interface UseVideoControllerReturn {
   seekTo: (seconds: number) => boolean;
   markUserManualAction: () => void;
   isUserManualActionActive: () => boolean;
+  recordCurrentPosition: () => void;
+  getResumeSeconds: (index: number) => number;
 }
 
 export function useVideoController({
   highlights,
+  bvid,
+  cid,
 }: UseVideoControllerProps): UseVideoControllerReturn {
   const [currentPlaybackSec, setCurrentPlaybackSec] = useState<number>(0);
   const [duration, setDuration] = useState<number>(0);
@@ -42,9 +49,20 @@ export function useVideoController({
   }, []);
 
   const currentVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const { recordCurrentPosition, flush, getResumeSeconds } = usePlaybackPositionHistory({
+    bvid,
+    cid,
+    highlights,
+    currentPlaybackSec,
+    duration,
+  });
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
 
   // Poll or listen for video playback position & duration with dynamic video re-attachment
   useEffect(() => {
+    const handlePause = () => flushRef.current();
+
     const syncPlayback = () => {
       const video = getVideoElement();
 
@@ -56,6 +74,7 @@ export function useVideoController({
           currentVideoElRef.current.removeEventListener('loadedmetadata', syncPlayback);
           currentVideoElRef.current.removeEventListener('play', syncPlayback);
           currentVideoElRef.current.removeEventListener('pause', syncPlayback);
+          currentVideoElRef.current.removeEventListener('pause', handlePause);
           currentVideoElRef.current.removeEventListener('seeked', syncPlayback);
         }
 
@@ -65,6 +84,7 @@ export function useVideoController({
           video.addEventListener('loadedmetadata', syncPlayback, { passive: true });
           video.addEventListener('play', syncPlayback, { passive: true });
           video.addEventListener('pause', syncPlayback, { passive: true });
+          video.addEventListener('pause', handlePause);
           video.addEventListener('seeked', syncPlayback, { passive: true });
         }
 
@@ -95,11 +115,14 @@ export function useVideoController({
         currentVideoElRef.current.removeEventListener('loadedmetadata', syncPlayback);
         currentVideoElRef.current.removeEventListener('play', syncPlayback);
         currentVideoElRef.current.removeEventListener('pause', syncPlayback);
+        currentVideoElRef.current.removeEventListener('pause', handlePause);
         currentVideoElRef.current.removeEventListener('seeked', syncPlayback);
         currentVideoElRef.current = null;
       }
     };
   }, []);
+
+
 
   // Compute active highlight
   const activeHighlightIndex = findActiveHighlightIndex(
@@ -129,5 +152,7 @@ export function useVideoController({
     seekTo,
     markUserManualAction,
     isUserManualActionActive,
+    recordCurrentPosition,
+    getResumeSeconds,
   };
 }

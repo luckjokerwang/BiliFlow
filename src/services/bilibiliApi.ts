@@ -44,7 +44,7 @@ function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function makeHeaders(bvid: string): Record<string, string> {
+export function makeHeaders(bvid: string): Record<string, string> {
   return {
     Accept: 'application/json, text/plain, */*',
     'User-Agent':
@@ -53,7 +53,7 @@ function makeHeaders(bvid: string): Record<string, string> {
   };
 }
 
-function buildBiliUrl(path: string, params: Record<string, string>): string {
+export function buildBiliUrl(path: string, params: Record<string, string>): string {
   const url = new URL(`https://api.bilibili.com${path}`);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
@@ -73,7 +73,7 @@ async function fetchJson<T>(
   return data as T;
 }
 
-async function fetchJsonWithTimeout<T>(
+export async function fetchJsonWithTimeout<T>(
   url: string,
   headers: Record<string, string>,
   timeoutMs = 8000
@@ -239,11 +239,10 @@ export async function fetchVideoPreflightMetadata(params: {
   const commonParams: Record<string, string> = { cid, bvid };
   if (aid) commonParams.aid = aid;
   const playerUrl = buildBiliUrl('/x/player/v2', commonParams);
-  const pbpUrl = buildBiliUrl('/pbp/data', commonParams);
 
   const [playerResult, pbpResult] = await Promise.allSettled([
     fetchJsonWithTimeout<PlayerV2Response>(playerUrl, headers),
-    fetchJsonWithTimeout<PbpDataResponse>(pbpUrl, headers),
+    fetchDanmakuHeatmapPeaks({ bvid, cid, aid: aid || '' }),
   ]);
 
   if (playerResult.status === 'rejected') {
@@ -285,17 +284,32 @@ export async function fetchVideoPreflightMetadata(params: {
 
   if (pbpResult.status === 'rejected') {
     console.warn('[BiliFlow] preflight pbp/data failed:', pbpResult.reason);
-  } else {
-    const stepSec = finiteNumber(pbpResult.value.step_sec);
-    const rawValues = pbpResult.value.events?.default;
-    if (stepSec !== null && stepSec > 0 && Array.isArray(rawValues)) {
-      const values = rawValues.map((value) =>
-        typeof value === 'number' && Number.isFinite(value) ? value : Number.NaN
-      );
-      const peaks = extractDanmakuHeatmapPeaks(values, stepSec);
-      if (peaks.length > 0) result.danmakuHeatmapPeaks = peaks;
-    }
+  } else if (pbpResult.value.length > 0) {
+    result.danmakuHeatmapPeaks = pbpResult.value;
   }
 
   return result;
+}
+
+/** Fetches the /pbp/data heatmap peaks shared by preflight and community digest. */
+export async function fetchDanmakuHeatmapPeaks(params: {
+  bvid: string;
+  cid: string;
+  aid: string;
+}): Promise<Array<{ timestampSec: number; densityRatio: number }>> {
+  const { bvid, cid, aid } = params;
+  if (!bvid || !cid) return [];
+  const headers = makeHeaders(bvid);
+  const commonParams: Record<string, string> = { cid, bvid };
+  if (aid) commonParams.aid = aid;
+  const pbpUrl = buildBiliUrl('/pbp/data', commonParams);
+  const data = await fetchJsonWithTimeout<PbpDataResponse>(pbpUrl, headers);
+  const stepSec = finiteNumber(data.step_sec);
+  const rawValues = data.events?.default;
+  if (stepSec === null || stepSec <= 0 || !Array.isArray(rawValues)) return [];
+  const values = rawValues.map((value) =>
+    typeof value === 'number' && Number.isFinite(value) ? value : Number.NaN
+  );
+  const peaks = extractDanmakuHeatmapPeaks(values, stepSec);
+  return peaks.length > 0 ? peaks : [];
 }
