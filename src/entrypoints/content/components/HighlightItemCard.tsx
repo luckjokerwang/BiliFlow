@@ -195,7 +195,9 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
       tabIndex={0}
       onClick={() => onJump(item, index)}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
           onJump(item, index);
         }
       }}

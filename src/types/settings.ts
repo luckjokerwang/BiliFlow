@@ -1,4 +1,7 @@
+import type { VideoCategoryKey } from './index';
+
 import { ProviderConfig, ThemeMode } from './index';
+
 
 // ==========================================
 // Feature Flags Matrix (统一功能开关矩阵)
@@ -8,9 +11,15 @@ export interface FeatureFlags {
   // 自动化控制
   autoSummarize: boolean;        // 是否进入页面后自动总结（关闭时转为纯手动触发，HUD 展示醒目的“生成总结”按钮）
   minDurationForAutoSec: number; // 自动总结的最小视频时长阈值（单位：秒，默认 60s，短于此时长不自动总结以节约 Token）
+  autoSummaryCategoryMode: 'all' | 'include' | 'exclude';
+  autoSummarizeCategories: VideoCategoryKey[];
+
 
   // 播放器进度条增强
+  showClosedHudLauncher: boolean;
+
   showTimelineMarkers: boolean;  // 是否在进度条轨道渲染高能亮点打点
+
   showHoverCard: boolean;        // 是否在鼠标悬浮时展示并排 AI 要点卡片
 
   // 交互与快捷键
@@ -28,6 +37,12 @@ export const DEFAULT_FEATURE_FLAGS: FeatureFlags = {
   showTimelineMarkers: true,
   showHoverCard: true,
   enableNumberKeySeek: true,
+  showClosedHudLauncher: false,
+
+
+  autoSummaryCategoryMode: 'all',
+  autoSummarizeCategories: [],
+
   autoFullscreenHud: true,
   showToasts: true,
   defaultHudOpen: true,
@@ -49,5 +64,14 @@ export interface UserSettings extends FeatureFlags {
   shortcutNextNode?: string;
   shortcutToggleQuotes?: string;
   shortcutQuickNote?: string;
+  shortcutRefresh?: string;
+  shortcutCopyMarkdown?: string;
+  shortcutSearchTranscript?: string;
+  shortcutHelp?: string;
+  shortcutPrevView?: string;
+  shortcutPrevHighlightArrow?: string;
+  shortcutNextHighlightArrow?: string;
+
+  shortcutNextView?: string;
   theme?: ThemeMode;
 }

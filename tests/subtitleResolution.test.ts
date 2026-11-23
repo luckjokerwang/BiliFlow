@@ -103,7 +103,7 @@ describe('Subtitle Waterfall & Utilities', () => {
       ];
 
       // Current highlight at 11s, next highlight at 168s (2分48秒)
-      const quotes = extractQuotesForHighlight(11, subs, 168);
+      const quotes = extractQuotesForHighlight(11, subs, { sectionEndSec: 168 });
       expect(quotes.length).toBe(5);
       expect(quotes[0].content).toBe('硬件配置吐槽开始');
       expect(quotes[quotes.length - 1].content).toBe('本章总结不推荐购买');

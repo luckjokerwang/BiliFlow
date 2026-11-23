@@ -1,42 +1,60 @@
 import React from 'react';
-import { Zap, ShieldCheck, RefreshCw, Settings, X, Copy, BookOpen } from 'lucide-react';
+import { Zap, ShieldCheck, RefreshCw, Settings, X, Copy, BookOpen, HelpCircle } from 'lucide-react';
+import type { UserSettings } from '../../../types/settings';
 import { HudViewMode } from '../../../utils/hudNavigation';
+import { resolveShortcut, type ShortcutAction } from '../../../utils/shortcutDefinitions';
 
 export interface HUDHeaderProps {
+  settings: UserSettings;
   isDark: boolean;
   loading: boolean;
   isFallbackUsed?: boolean;
   usedModel?: string;
   hasSummary?: boolean;
-  shortcut?: string;
   viewMode: HudViewMode;
+  categoryLabel?: string | null;
+
   onViewModeChange: (mode: HudViewMode) => void;
   onRefresh: () => void;
   onOpenOptions: () => void;
   onClose: () => void;
   onCopyMarkdown?: () => void;
-  onExportToBiliNote?: () => void;
+  onToggleHelp: () => void;
+
+  helpTriggerRef?: React.RefObject<HTMLButtonElement | null>;
+
   pendingNoteSyncCount?: number;
+  onExportToBiliNote?: () => void;
+
   onRetryNoteSync?: () => void;
 }
 
 export const HUDHeader = React.memo<HUDHeaderProps>(({
+  settings,
   isDark,
   loading,
+  viewMode,
   isFallbackUsed,
+
   usedModel,
   hasSummary,
-  shortcut,
-  viewMode,
   onViewModeChange,
-  onRefresh,
+  categoryLabel,
+
   onOpenOptions,
   onClose,
+  helpTriggerRef,
+
+  onToggleHelp,
+
+  onRefresh,
+
   onCopyMarkdown,
   onExportToBiliNote,
   pendingNoteSyncCount = 0,
   onRetryNoteSync,
 }) => {
+  const displayShortcut = (action: ShortcutAction): string => resolveShortcut(action, settings);
   const refreshLabel =
     viewMode === 'community'
       ? '重新加载社区精选'
@@ -67,18 +85,29 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
               <span className="text-[10px] font-mono uppercase px-1.5 py-0.2 rounded-full bg-sky-500/15 text-sky-500 font-bold">
                 HUD
               </span>
-              {shortcut && (
-                <kbd
-                  className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded border transition-colors ${
+              <kbd
+                className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded border transition-colors ${
+                  isDark
+                    ? 'bg-slate-800/80 text-slate-400 border-slate-700/60'
+                    : 'bg-slate-100 text-slate-500 border-slate-200'
+                }`}
+                title={`快捷键: ${displayShortcut('toggle')} (按快捷键可随时唤起/隐藏)`}
+              >
+                {displayShortcut('toggle')}
+              </kbd>
+              {categoryLabel && (
+                <span
+                  className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
                     isDark
-                      ? 'bg-slate-800/80 text-slate-400 border-slate-700/60'
-                      : 'bg-slate-100 text-slate-500 border-slate-200'
+                      ? 'text-sky-300 bg-sky-500/10 border-sky-500/20'
+                      : 'text-sky-600 bg-sky-50 border-sky-200'
                   }`}
-                  title={`快捷键: ${shortcut} (按快捷键可随时唤起/隐藏)`}
+                  title="当前视频所属 B 站主分区"
                 >
-                  {shortcut}
-                </kbd>
+                  {categoryLabel}
+                </span>
               )}
+
             </div>
           </div>
         </div>
@@ -126,6 +155,19 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
               <Copy className="w-3.5 h-3.5" />
             </button>
           )}
+          <button
+            type="button"
+            onClick={onToggleHelp}
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
+              isDark
+                ? 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+            }`}
+            title={`快捷键帮助 (${displayShortcut('help')})`}
+            aria-label="打开快捷键帮助"
+          >
+            <HelpCircle className="w-3.5 h-3.5" />
+          </button>
           <button
             type="button"
             onClick={onRefresh}
@@ -195,8 +237,8 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
               type="button"
               onClick={() => onViewModeChange(mode)}
               aria-pressed={isActive}
-              aria-keyshortcuts="Tab Shift+Tab"
-              title={`${label} · 按 Tab / Shift+Tab 切换视图`}
+              aria-keyshortcuts={mode === 'summary' ? '[' : ']'}
+              title={`${label} · 按 ${displayShortcut('prevView')} / ${displayShortcut('nextView')} 切换视图`}
               className={`flex-1 min-w-0 px-1.5 py-1.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
                 isActive
                   ? 'bg-sky-500 text-white'

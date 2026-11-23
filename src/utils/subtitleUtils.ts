@@ -130,25 +130,39 @@ export function fuseSubtitles(
 
 /**
  * Extracts relevant original subtitle quotes for a highlight's section.
- * Automatically spans across the section from highlightTimeSec to nextHighlightSec (if provided),
+ * Automatically spans across the section from highlightTimeSec to sectionEndSec (if provided),
  * or up to defaultWindowAfterSec / maxQuotes.
  */
+export interface ExtractQuotesOptions {
+  sectionEndSec?: number;
+  windowBeforeSec?: number;
+  defaultWindowAfterSec?: number;
+  maxQuotes?: number;
+  allowNearestFallback?: boolean;
+}
+
 export function extractQuotesForHighlight(
   highlightTimeSec: number,
   subtitles: BiliRawSubtitleItem[],
-  nextHighlightSec?: number,
-  windowBeforeSec = 2,
-  defaultWindowAfterSec = 45,
-  maxQuotes = 30
+  options: ExtractQuotesOptions = {}
 ): OriginalQuote[] {
   if (!Array.isArray(subtitles) || subtitles.length === 0) return [];
 
-  const hasNextSection = typeof nextHighlightSec === 'number' && nextHighlightSec > highlightTimeSec;
-  // When an explicit next section is provided, avoid bleeding into previous section's ended utterances
-  const effectiveBefore = hasNextSection ? Math.min(windowBeforeSec, 0.5) : windowBeforeSec;
+  const {
+    sectionEndSec,
+    windowBeforeSec = 2,
+    defaultWindowAfterSec = 45,
+    maxQuotes = 30,
+    allowNearestFallback = true,
+  } = options;
+
+  const hasSectionEnd =
+    typeof sectionEndSec === 'number' && sectionEndSec > highlightTimeSec;
+  // When an explicit section end is provided, avoid bleeding into the previous section's ended utterances
+  const effectiveBefore = hasSectionEnd ? Math.min(windowBeforeSec, 0.5) : windowBeforeSec;
   const startTime = Math.max(0, highlightTimeSec - effectiveBefore);
-  const endTime = hasNextSection
-    ? Math.min(nextHighlightSec - 0.5, highlightTimeSec + 300)
+  const endTime = hasSectionEnd
+    ? Math.min(sectionEndSec - 0.5, highlightTimeSec + 300)
     : highlightTimeSec + defaultWindowAfterSec;
   const matched: BiliRawSubtitleItem[] = [];
 
@@ -161,7 +175,7 @@ export function extractQuotesForHighlight(
   }
 
   // Fallback: If no exact overlap found (e.g. slight timing skew), pick nearest 2~3 items
-  if (matched.length === 0) {
+  if (matched.length === 0 && allowNearestFallback) {
     const nearestIdx = subtitles.findIndex((s) => s.from >= highlightTimeSec);
     const startIdx = Math.max(0, nearestIdx === -1 ? subtitles.length - 3 : nearestIdx - 1);
     matched.push(...subtitles.slice(startIdx, startIdx + 3));

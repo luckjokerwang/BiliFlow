@@ -58,8 +58,8 @@ describe('fetchVideoPreflightMetadata', () => {
     durationSec: 300,
   };
 
-  it('maps raw view_points.content to chapters and pbp samples to peaks', async () => {
-    global.fetch = vi.fn((url: string) => {
+  it('maps raw view_points.content to chapters and pbp samples to peaks without wbi fallback', async () => {
+    const fetchMock = vi.fn((url: string) => {
       if (url.includes('/x/player/v2')) {
         return Promise.resolve(
           jsonResponse({
@@ -84,7 +84,8 @@ describe('fetchVideoPreflightMetadata', () => {
         );
       }
       return Promise.reject(new Error(`Unexpected URL: ${url}`));
-    }) as unknown as typeof fetch;
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await fetchVideoPreflightMetadata(params);
     expect(result.officialChapters).toEqual([
@@ -97,17 +98,52 @@ describe('fetchVideoPreflightMetadata', () => {
       { timestampSec: 3, densityRatio: 0.5 },
       { timestampSec: 9, densityRatio: 1 },
     ]);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/player/wbi/v2'))).toBe(false);
   });
 
-  it('returns partial metadata when one endpoint fails', async () => {
-    global.fetch = vi.fn((url: string) => {
+  it('falls back to player/wbi/v2 when player/v2 has no chapters', async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes('/x/player/wbi/v2')) {
+        return Promise.resolve(
+          jsonResponse({
+            code: 0,
+            data: {
+              view_points: [
+                { type: 2, from: 10, to: 70, content: '备用章节' },
+              ],
+            },
+          })
+        );
+      }
       if (url.includes('/x/player/v2')) {
+        return Promise.resolve(
+          jsonResponse({ code: 0, data: { view_points: [] } })
+        );
+      }
+      if (url.includes('/pbp/data')) {
+        return Promise.resolve(jsonResponse({ step_sec: 3, events: { default: [0, 0, 0] } }));
+      }
+      return Promise.reject(new Error(`Unexpected URL: ${url}`));
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await fetchVideoPreflightMetadata(params);
+    expect(result.officialChapters).toEqual([
+      { from: 10, to: 70, title: '备用章节' },
+    ]);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/player/wbi/v2'))).toBe(true);
+  });
+
+  it('keeps partial metadata when both player endpoints fail', async () => {
+    const fetchMock = vi.fn((url: string) => {
+      if (url.includes('/x/player/v2') || url.includes('/x/player/wbi/v2')) {
         return Promise.reject(new Error('player offline'));
       }
       return Promise.resolve(
         jsonResponse({ step_sec: 3, events: { default: [0, 5, 0] } })
       );
-    }) as unknown as typeof fetch;
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
 
     const result = await fetchVideoPreflightMetadata(params);
     expect(result.officialChapters).toBeUndefined();
@@ -117,5 +153,6 @@ describe('fetchVideoPreflightMetadata', () => {
     expect(result.danmakuHeatmapPeaks).toEqual([
       { timestampSec: 3, densityRatio: 1 },
     ]);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/x/player/wbi/v2'))).toBe(true);
   });
 });

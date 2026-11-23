@@ -1,11 +1,8 @@
 import { useState, useEffect } from 'react';
 import { UserSettings } from '../../../types/settings';
 import { isUserTyping } from '../../../utils/playerController';
-import {
-  HudViewMode,
-  getNextHudViewMode,
-  isViewSwitchTabKey,
-} from '../../../utils/hudNavigation';
+import { HudViewMode, getNextHudViewMode } from '../../../utils/hudNavigation';
+import { resolveShortcut } from '../../../utils/shortcutDefinitions';
 
 export interface UseFullscreenDetectorProps {
   settings: UserSettings;
@@ -19,6 +16,15 @@ export interface UseFullscreenDetectorProps {
   onToggleQuotes?: () => void;
   onNumberKeySeek?: (digit: number) => void;
   onQuickNote?: () => void;
+  onToggleHelp?: () => void;
+  isShortcutHelpOpen?: boolean;
+  onRefresh?: () => void;
+  onCopyMarkdown?: () => void;
+  onPrevHighlightArrow?: () => void;
+  onNextHighlightArrow?: () => void;
+  onSearchTranscript?: () => void;
+  onScrollCurrentView?: (direction: -1 | 1) => void;
+  hasSummary?: boolean;
 }
 
 export interface UseFullscreenDetectorReturn {
@@ -54,6 +60,12 @@ export function matchesShortcut(e: KeyboardEvent, shortcutStr?: string): boolean
   );
 }
 
+function consumeKey(e: KeyboardEvent): void {
+  e.preventDefault();
+  e.stopPropagation();
+  e.stopImmediatePropagation();
+}
+
 export function useFullscreenDetector({
   settings,
   isOpen,
@@ -66,10 +78,18 @@ export function useFullscreenDetector({
   onToggleQuotes,
   onNumberKeySeek,
   onQuickNote,
+  onToggleHelp,
+  isShortcutHelpOpen = false,
+  onRefresh,
+  onCopyMarkdown,
+  onPrevHighlightArrow,
+  onNextHighlightArrow,
+  onSearchTranscript,
+  onScrollCurrentView,
+  hasSummary = false,
 }: UseFullscreenDetectorProps): UseFullscreenDetectorReturn {
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
 
-  // Fullscreen change tracking
   useEffect(() => {
     const checkFullscreen = () => {
       const fullscreenDocument = document as Document & {
@@ -90,7 +110,6 @@ export function useFullscreenDetector({
     document.addEventListener('webkitfullscreenchange', checkFullscreen);
     document.addEventListener('mozfullscreenchange', checkFullscreen);
     window.addEventListener('resize', checkFullscreen);
-
     checkFullscreen();
 
     return () => {
@@ -101,80 +120,102 @@ export function useFullscreenDetector({
     };
   }, []);
 
-  // Global Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isUserTyping(e)) {
+      if (e.key === 'Escape' && isOpen) {
+        consumeKey(e);
+        if (isShortcutHelpOpen) onToggleHelp?.();
+        else onClose();
         return;
       }
 
-      // 1. Toggle HUD
-      if (matchesShortcut(e, settings.shortcutToggle)) {
-        e.preventDefault();
-        e.stopPropagation();
+      if (isUserTyping(e)) return;
+
+      if (matchesShortcut(e, resolveShortcut('toggle', settings))) {
+        consumeKey(e);
         onToggleOpen();
         return;
       }
-
-      // 2. Quick Note & Screenshot Shortcut (default: Alt+N)
-      if (matchesShortcut(e, settings.shortcutQuickNote || 'Alt+N')) {
-        e.preventDefault();
-        e.stopPropagation();
+      if (matchesShortcut(e, resolveShortcut('quickNote', settings))) {
+        consumeKey(e);
         onQuickNote?.();
         return;
       }
 
-      // 3. Close HUD on Escape
-      if (e.key === 'Escape' && isOpen) {
-        e.preventDefault();
-        e.stopPropagation();
-        onClose();
-        return;
-      }
+      if (!isOpen) return;
 
-      // Navigation shortcuts inside HUD only take effect when HUD is open
-      // Strictly prevents intercepting native B站 player shortcuts (e.g. K for pause, J for rewind)
-      if (!isOpen) {
-        return;
-      }
-
-      // Tab switches HUD views when expanded (Shift+Tab reverses).
-      if (isViewSwitchTabKey(e)) {
-        e.preventDefault();
-        e.stopPropagation();
+      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        consumeKey(e);
         onViewModeChange(getNextHudViewMode(viewMode, e.shiftKey));
         return;
       }
 
-      // Highlight-specific navigation is not meaningful outside the summary view.
-      if (viewMode !== 'summary') {
+      if (matchesShortcut(e, resolveShortcut('help', settings))) {
+        consumeKey(e);
+        onToggleHelp?.();
+        return;
+      }
+      if (matchesShortcut(e, resolveShortcut('refresh', settings))) {
+        consumeKey(e);
+        onRefresh?.();
+        return;
+      }
+      if (matchesShortcut(e, resolveShortcut('copyMarkdown', settings))) {
+        if (!hasSummary) return;
+        consumeKey(e);
+        onCopyMarkdown?.();
+        return;
+      }
+      if (matchesShortcut(e, resolveShortcut('prevView', settings))) {
+        consumeKey(e);
+        onViewModeChange(getNextHudViewMode(viewMode, true));
+        return;
+      }
+      if (matchesShortcut(e, resolveShortcut('nextView', settings))) {
+        consumeKey(e);
+        onViewModeChange(getNextHudViewMode(viewMode, false));
         return;
       }
 
-      // 4. Highlight navigation (J / K)
-      if (matchesShortcut(e, settings.shortcutPrevNode)) {
-        e.preventDefault();
-        e.stopPropagation();
+      // HUD 展开时 ↑/↓ 始终由 HUD 接管；同时拦截 keyup，避免 B 站播放器调音量。
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        consumeKey(e);
+        const direction: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
+        if (!isShortcutHelpOpen && viewMode === 'summary') {
+          const callback = direction < 0 ? onPrevHighlightArrow : onNextHighlightArrow;
+          callback?.();
+        } else {
+          onScrollCurrentView?.(direction);
+        }
+        return;
+      }
+
+      if (viewMode === 'transcript') {
+        if (matchesShortcut(e, resolveShortcut('searchTranscript', settings))) {
+          consumeKey(e);
+          onSearchTranscript?.();
+          return;
+        }
+        return;
+      }
+      if (viewMode !== 'summary') return;
+
+      if (matchesShortcut(e, resolveShortcut('prev', settings))) {
+        consumeKey(e);
         onPrevHighlight?.();
         return;
       }
-
-      if (matchesShortcut(e, settings.shortcutNextNode)) {
-        e.preventDefault();
-        e.stopPropagation();
+      if (matchesShortcut(e, resolveShortcut('next', settings))) {
+        consumeKey(e);
         onNextHighlight?.();
         return;
       }
-
-      // 5. Toggle quotes expansion (O)
-      if (matchesShortcut(e, settings.shortcutToggleQuotes)) {
-        e.preventDefault();
-        e.stopPropagation();
+      if (matchesShortcut(e, resolveShortcut('quotes', settings))) {
+        consumeKey(e);
         onToggleQuotes?.();
         return;
       }
 
-      // 6. 1~9 Number Key Seek (Feature Flag: enableNumberKeySeek)
       if (
         settings.enableNumberKeySeek &&
         !e.ctrlKey &&
@@ -184,17 +225,23 @@ export function useFullscreenDetector({
       ) {
         const digit = parseInt(e.key, 10);
         if (digit >= 1 && digit <= 9) {
-          e.preventDefault();
-          e.stopPropagation();
+          consumeKey(e);
           onNumberKeySeek?.(digit);
           return;
         }
       }
     };
 
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!isOpen || isUserTyping(e)) return;
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') consumeKey(e);
+    };
+
     window.addEventListener('keydown', handleKeyDown, true);
+    window.addEventListener('keyup', handleKeyUp, true);
     return () => {
       window.removeEventListener('keydown', handleKeyDown, true);
+      window.removeEventListener('keyup', handleKeyUp, true);
     };
   }, [
     settings,
@@ -208,6 +255,15 @@ export function useFullscreenDetector({
     onToggleQuotes,
     onNumberKeySeek,
     onQuickNote,
+    onToggleHelp,
+    isShortcutHelpOpen,
+    onRefresh,
+    onCopyMarkdown,
+    onSearchTranscript,
+    onScrollCurrentView,
+    onPrevHighlightArrow,
+    onNextHighlightArrow,
+    hasSummary,
   ]);
 
   return { isFullscreen };

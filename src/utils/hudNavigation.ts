@@ -8,8 +8,3 @@ export function getNextHudViewMode(mode: HudViewMode, reverse: boolean): HudView
   return HUD_VIEW_ORDER[(current + delta + HUD_VIEW_ORDER.length) % HUD_VIEW_ORDER.length];
 }
 
-export function isViewSwitchTabKey(
-  e: Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'altKey' | 'metaKey'>
-): boolean {
-  return e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey;
-}

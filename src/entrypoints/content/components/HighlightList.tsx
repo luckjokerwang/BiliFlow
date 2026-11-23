@@ -1,5 +1,5 @@
 import React from 'react';
-import { HighlightItem } from '../../../types';
+import { CreatorChapterSource, HighlightItem } from '../../../types';
 import {
   NativeNoteInsertResult,
   UserAnnotation,
@@ -10,6 +10,7 @@ import { HighlightItemCard } from './HighlightItemCard';
 export interface HighlightListProps {
   isDark: boolean;
   highlights: HighlightItem[];
+  chapterSource?: CreatorChapterSource;
   selectedIndex: number;
   expandedQuoteIds: Set<string | number>;
   enableNumberKeySeek: boolean;
@@ -33,6 +34,7 @@ export interface HighlightListProps {
 export const HighlightList: React.FC<HighlightListProps> = ({
   isDark,
   highlights,
+  chapterSource,
   selectedIndex,
   expandedQuoteIds,
   enableNumberKeySeek,
@@ -54,7 +56,12 @@ export const HighlightList: React.FC<HighlightListProps> = ({
     <div className="space-y-2">
       <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 px-0.5 select-none">
         <span>
-          核心亮点 {enableNumberKeySeek ? '(按数字键 1~9 秒切)' : ''}
+          {chapterSource === 'official'
+            ? 'UP 主章节'
+            : chapterSource === 'description'
+              ? '简介章节'
+              : '核心亮点'}{' '}
+          {enableNumberKeySeek ? '(按数字键 1~9 秒切)' : ''}
         </span>
         <span>{highlights.length} 个节点</span>
       </div>

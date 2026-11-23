@@ -1,6 +1,9 @@
 import { browser } from 'wxt/browser';
 import { UserSettings, DEFAULT_FEATURE_FLAGS, FeatureFlags } from '../types/settings';
 import { DEFAULT_SETTINGS, DEFAULT_PROVIDERS } from '../constants';
+import { isVideoCategoryKey } from '../utils/videoCategory';
+import type { AutoSummaryCategoryMode } from '../utils/autoSummaryPolicy';
+import type { VideoCategoryKey } from '../types';
 
 /**
  * Safely merges raw stored settings with defaults, providing 100% backward-compatibility
@@ -18,6 +21,21 @@ export function mergeSettingsWithDefaults(raw: any): UserSettings {
   } else if (typeof raw.autoFetch === 'boolean') {
     autoSummarize = raw.autoFetch;
   }
+  const categoryMode: AutoSummaryCategoryMode =
+    raw.autoSummaryCategoryMode === 'include' ||
+    raw.autoSummaryCategoryMode === 'exclude'
+      ? raw.autoSummaryCategoryMode
+      : DEFAULT_FEATURE_FLAGS.autoSummaryCategoryMode;
+  const selectedCategories: VideoCategoryKey[] = Array.isArray(raw.autoSummarizeCategories)
+    ? Array.from(
+        new Set(
+          raw.autoSummarizeCategories.filter((value: unknown): value is VideoCategoryKey =>
+            isVideoCategoryKey(value)
+          )
+        )
+      )
+    : [...DEFAULT_FEATURE_FLAGS.autoSummarizeCategories];
+
 
   // 2. Feature Flags safe extraction with defaults
   const featureFlags: FeatureFlags = {
@@ -38,6 +56,11 @@ export function mergeSettingsWithDefaults(raw: any): UserSettings {
       typeof raw.enableNumberKeySeek === 'boolean'
         ? raw.enableNumberKeySeek
         : DEFAULT_FEATURE_FLAGS.enableNumberKeySeek,
+    showClosedHudLauncher:
+      typeof raw.showClosedHudLauncher === 'boolean'
+        ? raw.showClosedHudLauncher
+        : DEFAULT_FEATURE_FLAGS.showClosedHudLauncher,
+
     autoFullscreenHud:
       typeof raw.autoFullscreenHud === 'boolean'
         ? raw.autoFullscreenHud
@@ -50,6 +73,8 @@ export function mergeSettingsWithDefaults(raw: any): UserSettings {
       typeof raw.defaultHudOpen === 'boolean'
         ? raw.defaultHudOpen
         : DEFAULT_FEATURE_FLAGS.defaultHudOpen,
+    autoSummaryCategoryMode: categoryMode,
+    autoSummarizeCategories: selectedCategories,
   };
 
   // 3. Providers defensive fallback

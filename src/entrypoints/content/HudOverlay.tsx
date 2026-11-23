@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { browser } from 'wxt/browser';
-import { Loader2, AlertCircle, RotateCcw, FileText, Settings } from 'lucide-react';
+import { Loader2, AlertCircle, RotateCcw, FileText, Settings, Zap } from 'lucide-react';
 import { HighlightItem, HudViewMode } from '../../types';
 import { alignElementInViewport } from '../../utils/scrollPositioning';
 import {
@@ -15,7 +15,8 @@ import {
   formatSummaryAsMarkdown,
   copyTextToClipboard,
 } from '../../utils/exportUtils';
-import { formatStudyNoteToMarkdown } from '../../utils/biliNoteFormatter';
+import { resolveShortcut } from '../../utils/shortcutDefinitions';
+import { ShortcutHelpPanel } from './components/ShortcutHelpPanel';
 
 import { useSettings } from './hooks/useSettings';
 import { useAutoSummary } from './hooks/useAutoSummary';
@@ -35,9 +36,18 @@ export const HudOverlay: React.FC = () => {
   const { settings, isReady } = useSettings();
   const [isOpen, setIsOpen] = useState<boolean>(false);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<HudViewMode>('summary');
+
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string | number>>(new Set());
-  const [viewMode, setViewMode] = useState<HudViewMode>('summary');
+  const [isShortcutHelpOpen, setIsShortcutHelpOpen] = useState<boolean>(false);
+  const hudContainerRef = useRef<HTMLDivElement | null>(null);
+  const openButtonRef = useRef<HTMLButtonElement | null>(null);
+  const helpTriggerRef = useRef<HTMLButtonElement | null>(null);
+
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  const openedByUserRef = useRef<boolean>(false);
   // Scroll tracking refs
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -47,7 +57,61 @@ export const HudOverlay: React.FC = () => {
     setTimeout(() => setToastMsg(null), 2500);
   }, []);
 
-  // Initialize default open state once settings are loaded
+  // 用户主动打开时保存此前焦点，便于关闭后还原。
+  const openHudAsUser = useCallback(() => {
+    restoreFocusRef.current = document.activeElement as HTMLElement | null;
+    openedByUserRef.current = true;
+    window.dispatchEvent(new CustomEvent('biliflow:ensure-mount'));
+    setIsOpen(true);
+    setIsShortcutHelpOpen(false);
+  }, []);
+
+  const closeHud = useCallback(() => {
+    setIsOpen(false);
+    setIsShortcutHelpOpen(false);
+  }, []);
+
+  const toggleHudAsUser = useCallback(() => {
+    if (isOpen) {
+      closeHud();
+    } else {
+      openHudAsUser();
+    }
+  }, [isOpen, openHudAsUser, closeHud]);
+
+  const focusHelpTrigger = useCallback(() => {
+    helpTriggerRef.current?.focus();
+  }, []);
+
+  const toggleShortcutHelp = useCallback(() => {
+    if (isShortcutHelpOpen) {
+      focusHelpTrigger();
+    }
+    setIsShortcutHelpOpen((prev) => !prev);
+  }, [isShortcutHelpOpen, focusHelpTrigger]);
+
+  // 仅在用户主动打开后把焦点移入 HUD；设置导致的默认展开不抢焦点。
+  useEffect(() => {
+    if (isOpen && openedByUserRef.current) {
+      hudContainerRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  // 关闭时恢复此前焦点；若来源节点已卸载则回退到关闭态打开按钮。
+  useEffect(() => {
+    if (isOpen) return;
+    if (openedByUserRef.current) {
+      openedByUserRef.current = false;
+      const target = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      if (target?.isConnected) {
+        target.focus();
+      } else {
+        openButtonRef.current?.focus();
+      }
+    }
+  }, [isOpen]);
+
   useEffect(() => {
     if (isReady && settings.defaultHudOpen) {
       setIsOpen(true);
@@ -58,6 +122,8 @@ export const HudOverlay: React.FC = () => {
   const {
     summary,
     loading,
+    manualReason,
+
     error,
     isManualMode,
     videoInfo,
@@ -70,6 +136,8 @@ export const HudOverlay: React.FC = () => {
   } = useAutoSummary({
     settings,
     onToast: showToast,
+    settingsReady: isReady,
+
   });
 
   const {
@@ -233,17 +301,85 @@ export const HudOverlay: React.FC = () => {
     });
   }, [markUserManualAction]);
 
+  // Copy Markdown to Clipboard (Dual-track with user annotations)
+  const handleCopyMarkdown = useCallback(async () => {
+    if (!summary) return;
+    let md = '';
+    if (annotations.length > 0) {
+      md = formatStudyNoteToMarkdown({
+        bvid: summary.bvid,
+        cid: summary.cid,
+        title: summary.title,
+        summary,
+        annotations,
+      });
+    } else {
+      md = formatSummaryAsMarkdown(summary);
+    }
+
+    const ok = await copyTextToClipboard(md);
+    if (ok) {
+      showToast('已复制 Markdown 笔记到剪贴板 (含个人思考与引用)');
+    } else {
+      showToast('复制失败，请检查浏览器剪贴板权限');
+    }
+  }, [summary, annotations, showToast]);
+
+  // 刷新/重新生成当前视图；按当前视图 loading 状态拒绝重入。
+  const handleRefreshCurrentView = useCallback(() => {
+    if (viewMode === 'community') {
+      if (communityLoading) return;
+      retryCommunity();
+    } else if (viewMode === 'transcript') {
+      if (transcriptLoading) return;
+      void retryTranscript();
+    } else {
+      if (loading) return;
+      void retrySummary();
+    }
+  }, [viewMode, communityLoading, transcriptLoading, loading, retryCommunity, retryTranscript, retrySummary]);
+
+  const handleSearchTranscript = useCallback(() => {
+    searchInputRef.current?.focus();
+  }, []);
+
   // Hook 4: Fullscreen & Global Keyboard Shortcuts
   useFullscreenDetector({
     isOpen,
     settings,
     viewMode,
     onViewModeChange: setViewMode,
-    onToggleOpen: () => {
-      window.dispatchEvent(new CustomEvent('biliflow:ensure-mount'));
-      setIsOpen((prev) => !prev);
+    onToggleOpen: toggleHudAsUser,
+    onClose: closeHud,
+    onToggleHelp: toggleShortcutHelp,
+    isShortcutHelpOpen,
+    onRefresh: handleRefreshCurrentView,
+    onCopyMarkdown: handleCopyMarkdown,
+    onSearchTranscript: handleSearchTranscript,
+    onPrevHighlightArrow: () => {
+      if (!summary?.highlights || summary.highlights.length === 0) return;
+      const next = Math.max(selectedIndex - 1, 0);
+      handleJump(summary.highlights[next], next);
     },
-    onClose: () => setIsOpen(false),
+    onNextHighlightArrow: () => {
+      if (!summary?.highlights || summary.highlights.length === 0) return;
+      const next = Math.min(selectedIndex + 1, summary.highlights.length - 1);
+      handleJump(summary.highlights[next], next);
+    },
+
+    onScrollCurrentView: (direction) => {
+      const root = hudContainerRef.current;
+      if (!root) return;
+      const candidates = Array.from(root.querySelectorAll<HTMLElement>('*')).filter(
+        (el) => el.scrollHeight > el.clientHeight + 1
+      );
+      const container = candidates[0] || scrollContainerRef.current;
+      if (!container) return;
+      markUserManualAction();
+      container.scrollBy({ top: direction * 96, behavior: 'smooth' });
+    },
+
+    hasSummary: Boolean(summary?.highlights?.length),
     onQuickNote: quickCapture,
     onPrevHighlight: () => {
       if (!summary?.highlights || summary.highlights.length === 0) return;
@@ -333,30 +469,6 @@ export const HudOverlay: React.FC = () => {
     showToast,
   ]);
 
-  // Copy Markdown to Clipboard (Dual-track with user annotations)
-  const handleCopyMarkdown = useCallback(async () => {
-    if (!summary) return;
-    let md = '';
-    if (annotations.length > 0) {
-      md = formatStudyNoteToMarkdown({
-        bvid: summary.bvid,
-        cid: summary.cid,
-        title: summary.title,
-        summary,
-        annotations,
-      });
-    } else {
-      md = formatSummaryAsMarkdown(summary);
-    }
-
-    const ok = await copyTextToClipboard(md);
-    if (ok) {
-      showToast('已复制 Markdown 笔记到剪贴板 (含个人思考与引用)');
-    } else {
-      showToast('复制失败，请检查浏览器剪贴板权限');
-    }
-  }, [summary, annotations, showToast]);
-
   // Open Options page safely
   const handleOpenOptions = () => {
     browser.runtime.sendMessage({ type: 'OPEN_OPTIONS_PAGE' }).catch(() => {
@@ -374,6 +486,10 @@ export const HudOverlay: React.FC = () => {
       {/* Floating HUD Card Container */}
       {isOpen && (
         <div
+          ref={hudContainerRef}
+          role="dialog"
+          aria-label="BiliFlow 视频总结"
+          tabIndex={-1}
           className={`fixed top-[68px] right-6 w-[370px] sm:w-[410px] max-h-[min(585px,calc(100vh-8rem))] flex flex-col rounded-2xl border shadow-2xl backdrop-blur-xl pointer-events-auto transition-all duration-200 overflow-hidden animate-fade-in ${
             isDark
               ? 'bg-[#0f172a]/95 border-slate-700/80 text-slate-100 shadow-sky-950/40'
@@ -382,6 +498,7 @@ export const HudOverlay: React.FC = () => {
         >
           {/* Header */}
           <HUDHeader
+            settings={settings}
             isDark={isDark}
             loading={
               viewMode === 'community'
@@ -393,30 +510,33 @@ export const HudOverlay: React.FC = () => {
             isFallbackUsed={summary?.isFallbackUsed}
             usedModel={summary?.usedModel}
             hasSummary={Boolean(summary?.highlights?.length)}
-            shortcut={settings.shortcutToggle || 'Alt+S'}
             viewMode={viewMode}
+            categoryLabel={videoInfo?.category?.label ?? null}
             onViewModeChange={setViewMode}
-            onRefresh={() => {
-              if (viewMode === 'community') {
-                retryCommunity();
-              } else if (viewMode === 'transcript') {
-                void retryTranscript();
-              } else {
-                void retrySummary();
-              }
-            }}
+            onRefresh={handleRefreshCurrentView}
             onOpenOptions={handleOpenOptions}
-            onClose={() => setIsOpen(false)}
+            onToggleHelp={toggleShortcutHelp}
+            helpTriggerRef={helpTriggerRef}
             onCopyMarkdown={handleCopyMarkdown}
             onExportToBiliNote={() => summary && exportFullToNativeNote(summary)}
             pendingNoteSyncCount={pendingSyncCount}
             onRetryNoteSync={() => {
               void retryPendingSyncs();
+
             }}
+            onClose={closeHud}
           />
 
-          {/* Content Body */}
-          {viewMode === 'summary' ? (
+          {isShortcutHelpOpen ? (
+            <ShortcutHelpPanel
+              isDark={isDark}
+              settings={settings}
+              onClose={() => {
+                setIsShortcutHelpOpen(false);
+                focusHelpTrigger();
+              }}
+            />
+          ) : viewMode === 'summary' ? (
             <div
               ref={scrollContainerRef}
               onWheel={markUserManualAction}
@@ -479,10 +599,13 @@ export const HudOverlay: React.FC = () => {
                   loading={loading}
                   videoDuration={duration || videoInfo?.duration || 0}
                   minDurationForAutoSec={settings.minDurationForAutoSec}
-                  autoSummarizeEnabled={settings.autoSummarize}
+                  manualReason={manualReason}
+                  categoryLabel={videoInfo?.category?.label ?? null}
                   onTrigger={() => triggerSummary(false)}
                 />
               )}
+
+
 
               {/* Summary Content */}
               {summary && !loading && (
@@ -511,8 +634,10 @@ export const HudOverlay: React.FC = () => {
                   />
 
                   <HighlightList
-                    isDark={isDark}
+                    chapterSource={summary.chapterSource}
                     highlights={summary.highlights}
+                    isDark={isDark}
+
                     selectedIndex={selectedIndex}
                     expandedQuoteIds={expandedQuoteIds}
                     enableNumberKeySeek={settings.enableNumberKeySeek}
@@ -579,11 +704,44 @@ export const HudOverlay: React.FC = () => {
                   void retryTranscript();
                 }}
                 onSeek={seekTo}
+                searchInputRef={searchInputRef}
                 onManualInteraction={markUserManualAction}
               />
             </div>
           )}
         </div>
+      )}
+      {!isOpen && settings.showClosedHudLauncher && (
+        <button
+          ref={openButtonRef}
+          type="button"
+          onClick={openHudAsUser}
+          className={`fixed top-[68px] right-6 inline-flex items-center gap-2 px-3 py-2 rounded-xl border shadow-lg backdrop-blur-xl pointer-events-auto transition-all hover:shadow-xl cursor-pointer ${
+            isDark
+              ? 'bg-[#0f172a]/90 border-slate-700/80 text-slate-100 shadow-sky-950/30'
+              : 'bg-white/90 border-slate-200/90 text-slate-800 shadow-slate-300/50'
+          }`}
+          title={`打开 BiliFlow 心流面板 (${resolveShortcut('toggle', settings)})`}
+          aria-label="打开 BiliFlow 心流面板"
+        >
+          <span
+            className={`p-1 rounded-lg bg-gradient-to-tr from-sky-500 to-cyan-400 text-white ${
+              isDark ? '' : 'shadow-sm'
+            }`}
+          >
+            <Zap className="w-3.5 h-3.5 fill-current" />
+          </span>
+          <span className="text-xs font-bold">心流</span>
+          <kbd
+            className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+              isDark
+                ? 'bg-slate-800/80 text-slate-400 border-slate-700/60'
+                : 'bg-slate-100 text-slate-500 border-slate-200'
+            }`}
+          >
+            {resolveShortcut('toggle', settings)}
+          </kbd>
+        </button>
       )}
     </div>
   );

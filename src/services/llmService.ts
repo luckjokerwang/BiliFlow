@@ -7,6 +7,7 @@ import {
   TranscriptWindow,
   MapPhaseResult,
   VideoPreflightMetadata,
+  CreatorChapter,
 } from '../types';
 import {
   chunkSubtitles,
@@ -15,6 +16,10 @@ import {
 } from '../utils/transcriptChunker';
 import { parseLLMSummaryOutput, parseMapPhaseOutput } from '../utils/llmParser';
 import { extractQuotesForHighlight, snapTimestampToUtterance } from '../utils/subtitleUtils';
+import {
+  applyCreatorChapterStructure,
+  resolveCreatorChapters,
+} from '../utils/officialChapters';
 import { formatSeconds } from '../utils/timeParser';
 
 const SUMMARY_SYSTEM_PROMPT = `
@@ -46,10 +51,13 @@ const SUMMARY_SYSTEM_PROMPT = `
 }
 
 要求：
-1. 没有【UP 主官方章节】时，highlights 数量控制在 3 到 6 个最核心节点；有官方章节时，每个有效章节生成一个 highlight，使用原章节标题且时间从章节起点开始，不受 3 到 6 个上限。
-2. timestamp 必须严格对应字幕里出现的起始时间戳（格式 mm:ss 或 hh:mm:ss）。
-3. 核心节点必须按时间线均匀覆盖视频的全片脉络（包含起承转合、核心论点推进与结尾结论），严禁全部拥挤在开篇前几分钟。
-4. 没有官方章节时，才把【简介时间戳】当作次级结构参考，并保持 3 到 6 个 highlights。
+1. 三种结构互斥，按优先级只选一种输出 highlights：
+   - 若提供了【UP 主官方章节】：每个有效章节生成一个 highlight，使用原章节标题与原章节起点时间（章节区间左端），不受 3 到 6 个上限，也不要求章节起点严格等于某句字幕的起始时间。
+   - 否则若提供了至少两个【简介时间戳】：每个简介时间段生成一个 highlight，使用原简介标题与该时间点作为起点，最后一个时间段延续到视频结尾；同样不受 3 到 6 个上限，也不要求起点严格等于字幕起始时间。
+   - 以上两者都没有时：自行生成 3 到 6 个最核心节点，timestamp 必须吸附到字幕中真实出现的起始时间戳（格式 mm:ss 或 hh:mm:ss）。
+2. 每个 highlight 的 keyPoint 必须概括该段字幕中的具体结论、步骤或信息，不得只复述标题；若该段字幕没有实质内容，keyPoint 返回空字符串，禁止补写。
+3. AI 自由节点阶段应让核心节点按时间线覆盖视频全片脉络（包含起承转合、核心论点推进与结尾结论），严禁全部拥挤在开篇前几分钟。
+4. 【简介时间戳】仅在存在至少两个点时作为上述第二种结构的直接依据；只有一个点时视作普通参考，仍走 AI 自由节点结构并保持 3 到 6 个 highlights。
 5. 逐一核对【弹幕高能时间点】附近字幕；有实质内容的高能段必须在对应章节 keyPoint 或独立 highlight 中覆盖，密度数值本身不得被当作事实。
 6. 无 preflight 数据时保持纯字幕提炼；语言保持客观、干练、直击要害。
 7. 术语定义必须来自视频语境；行动项必须具体可执行，不是泛泛的 bullet point。
@@ -523,13 +531,24 @@ async function executeSingleChatCompletion(params: {
 /**
  * Generate structured video summary with automatic Cross-Provider Fallback failover strategy.
  */
+export interface AttachQuotesOptions {
+  preserveTimestamps?: boolean;
+  creatorChapters?: CreatorChapter[];
+}
+
 export function attachQuotesToHighlights(
   rawHighlights: HighlightItem[],
-  subtitles: BiliRawSubtitleItem[]
+  subtitles: BiliRawSubtitleItem[],
+  options: AttachQuotesOptions = {}
 ): HighlightItem[] {
+  const { preserveTimestamps = false, creatorChapters } = options;
+  const chapterMode = Array.isArray(creatorChapters) && creatorChapters.length > 0;
+
   const snappedList = rawHighlights.map((item) => {
     const rawSec = item.timestamp ?? item.timestampSec ?? 0;
-    const snappedSec = snapTimestampToUtterance(rawSec, subtitles);
+    const snappedSec = preserveTimestamps
+      ? rawSec
+      : snapTimestampToUtterance(rawSec, subtitles);
     return {
       ...item,
       timestamp: snappedSec,
@@ -539,11 +558,17 @@ export function attachQuotesToHighlights(
   });
 
   return snappedList.map((item, idx, arr) => {
+    const chapter = chapterMode ? creatorChapters[idx] : undefined;
     const nextItem = arr[idx + 1];
     const nextSec = nextItem ? nextItem.timestampSec : undefined;
+    const quoteOptions = chapter
+      ? { sectionEndSec: chapter.to, allowNearestFallback: false }
+      : nextSec !== undefined
+        ? { sectionEndSec: nextSec }
+        : {};
     return {
       ...item,
-      originalQuotes: extractQuotesForHighlight(item.timestampSec, subtitles, nextSec),
+      originalQuotes: extractQuotesForHighlight(item.timestampSec, subtitles, quoteOptions),
     };
   });
 }
@@ -768,7 +793,20 @@ ${formattedTranscript}
     try {
       const rawContent = await runPipelineForTarget(target, endpoint);
       const parsed = parseLLMSummaryOutput(rawContent, { bvid, cid, title });
-      const highlightsWithQuotes = attachQuotesToHighlights(parsed.highlights, subtitles);
+      const resolvedChapters = resolveCreatorChapters(preflight, effectiveDurationSec);
+      const structuredHighlights = resolvedChapters
+        ? applyCreatorChapterStructure(parsed.highlights, resolvedChapters.chapters)
+        : parsed.highlights;
+      const highlightsWithQuotes = attachQuotesToHighlights(
+        structuredHighlights,
+        subtitles,
+        resolvedChapters
+          ? {
+              preserveTimestamps: true,
+              creatorChapters: resolvedChapters.chapters,
+            }
+          : {}
+      );
       const punchlineQuotes = matchPunchlineQuotesToSubtitles(
         parsed.punchlineQuotes || [],
         validSubtitles
@@ -778,6 +816,7 @@ ${formattedTranscript}
         ...parsed,
         highlights: highlightsWithQuotes,
         punchlineQuotes,
+        chapterSource: resolvedChapters?.source,
         usedModel: target.model,
         usedProviderName: target.provider.name,
         isFallbackUsed: target.isFallback,

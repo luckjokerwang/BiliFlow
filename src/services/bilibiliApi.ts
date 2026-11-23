@@ -1,5 +1,6 @@
 import {
   BiliRawSubtitleItem,
+  CreatorChapter,
   VideoPreflightMetadata,
 } from '../types';
 import {
@@ -39,9 +40,48 @@ interface SubtitleBodyEnvelope {
   body?: UnknownRecord[];
 }
 
-
 function finiteNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function parseOfficialChapters(
+  rawPoints: unknown,
+  durationSec?: number
+): CreatorChapter[] {
+  if (!Array.isArray(rawPoints)) return [];
+
+  const duration = finiteNumber(durationSec);
+  return rawPoints
+    .map((rawPoint) => {
+      const point = rawPoint as UnknownRecord;
+      const from = finiteNumber(point.from);
+      const to = finiteNumber(point.to);
+      const title =
+        typeof point.content === 'string' ? point.content.trim() : '';
+      if (
+        point.type !== 2 ||
+        from === null ||
+        to === null ||
+        from < 0 ||
+        to <= from ||
+        !title
+      ) {
+        return null;
+      }
+
+      const clampedFrom =
+        duration !== null && duration > 0
+          ? Math.max(0, Math.min(from, duration))
+          : from;
+      const clampedTo =
+        duration !== null && duration > 0
+          ? Math.max(0, Math.min(to, duration))
+          : to;
+      if (clampedTo <= clampedFrom) return null;
+      return { from: clampedFrom, to: clampedTo, title };
+    })
+    .filter((chapter): chapter is CreatorChapter => chapter !== null)
+    .sort((a, b) => a.from - b.from);
 }
 
 export function makeHeaders(bvid: string): Record<string, string> {
@@ -247,40 +287,26 @@ export async function fetchVideoPreflightMetadata(params: {
 
   if (playerResult.status === 'rejected') {
     console.warn('[BiliFlow] preflight player/v2 failed:', playerResult.reason);
-  } else if (playerResult.value.code === 0) {
-    const rawPoints = playerResult.value.data?.view_points;
-    if (Array.isArray(rawPoints)) {
-      const duration = finiteNumber(durationSec);
-      const chapters = rawPoints
-        .map((rawPoint) => {
-          const point = rawPoint as UnknownRecord;
-          const from = finiteNumber(point.from);
-          const to = finiteNumber(point.to);
-          const title =
-            typeof point.content === 'string' ? point.content.trim() : '';
-          if (point.type !== 2 || from === null || to === null || from < 0 || to <= from || !title) {
-            return null;
-          }
+  }
 
-          const clampedFrom =
-            duration !== null && duration > 0
-              ? Math.max(0, Math.min(from, duration))
-              : from;
-          const clampedTo =
-            duration !== null && duration > 0
-              ? Math.max(0, Math.min(to, duration))
-              : to;
-          if (clampedTo <= clampedFrom) return null;
-          return { from: clampedFrom, to: clampedTo, title };
-        })
-        .filter((chapter): chapter is { from: number; to: number; title: string } =>
-          chapter !== null
-        )
-        .sort((a, b) => a.from - b.from);
+  let chapters =
+    playerResult.status === 'fulfilled' && playerResult.value.code === 0
+      ? parseOfficialChapters(playerResult.value.data?.view_points, durationSec)
+      : [];
 
-      if (chapters.length > 0) result.officialChapters = chapters;
+  if (chapters.length === 0) {
+    const wbiUrl = buildBiliUrl('/x/player/wbi/v2', commonParams);
+    try {
+      const wbiResult = await fetchJsonWithTimeout<PlayerV2Response>(wbiUrl, headers);
+      if (wbiResult.code === 0) {
+        chapters = parseOfficialChapters(wbiResult.data?.view_points, durationSec);
+      }
+    } catch (error) {
+      console.warn('[BiliFlow] preflight player/wbi/v2 failed:', error);
     }
   }
+
+  if (chapters.length > 0) result.officialChapters = chapters;
 
   if (pbpResult.status === 'rejected') {
     console.warn('[BiliFlow] preflight pbp/data failed:', pbpResult.reason);

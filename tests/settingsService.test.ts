@@ -111,11 +111,26 @@ describe('settingsService - mergeSettingsWithDefaults', () => {
       user_settings: DEFAULT_SETTINGS,
     } as any);
     vi.mocked(browser.storage.local.set).mockResolvedValueOnce(undefined as any);
-
     const updated = await saveStoredSettings({ showHoverCard: false });
     expect(updated.showHoverCard).toBe(false);
     expect(browser.storage.local.set).toHaveBeenCalledWith({
       user_settings: expect.objectContaining({ showHoverCard: false }),
     });
+  });
+
+  it('sanitizes category mode and selected category keys', () => {
+    const result = mergeSettingsWithDefaults({
+      autoSummaryCategoryMode: 'exclude',
+      autoSummarizeCategories: ['entertainment', 'entertainment', 'invalid', 5],
+    });
+    expect(result.autoSummaryCategoryMode).toBe('exclude');
+    expect(result.autoSummarizeCategories).toEqual(['entertainment']);
+
+    const fallback = mergeSettingsWithDefaults({
+      autoSummaryCategoryMode: 'unknown',
+      autoSummarizeCategories: 'entertainment',
+    });
+    expect(fallback.autoSummaryCategoryMode).toBe('all');
+    expect(fallback.autoSummarizeCategories).toEqual([]);
   });
 });

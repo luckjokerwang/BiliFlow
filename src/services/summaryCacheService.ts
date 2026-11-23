@@ -192,8 +192,11 @@ export function isCachedSummaryValid(
 
   // Duration coverage check: if video duration is long (>= 10 minutes / 600s),
   // highlights must not be truncated to merely the first 2-3 minutes.
+  // Creator chapter structures legitimately allow a single early-starting node
+  // (e.g. one official chapter spanning the entire video), so skip this
+  // heuristic when the cached result records a chapter source.
   const duration = currentVideo.duration || 0;
-  if (duration >= 600) {
+  if (duration >= 600 && !cached.chapterSource) {
     const maxHighlightTs = Math.max(
       ...cached.highlights.map((h) =>
         typeof h.timestamp === 'number' ? h.timestamp : h.timestampSec ?? 0

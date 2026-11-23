@@ -9,7 +9,8 @@ import {
   CheckCircle2,
   SlidersHorizontal,
 } from 'lucide-react';
-import { UserSettings } from '../../../types';
+import type { UserSettings, VideoCategoryKey } from '../../../types';
+import { VIDEO_CATEGORY_ROOTS } from '../../../constants/videoCategories';
 import { ToggleSwitch } from '../../../components/common/ToggleSwitch';
 import { SliderInput } from '../../../components/common/SliderInput';
 
@@ -19,11 +20,61 @@ export interface FeatureFlagsTabProps {
   onSaveSettings: (newSettings: UserSettings, toastText?: string) => void;
 }
 
+type AutoSummaryCategoryMode = UserSettings['autoSummaryCategoryMode'];
+
+const CATEGORY_MODES: ReadonlyArray<{
+  value: AutoSummaryCategoryMode;
+  label: string;
+  description: string;
+}> = [
+  { value: 'all', label: '全部自动', description: '所有视频按全局开关与时长规则自动总结' },
+  { value: 'include', label: '仅选中分区', description: '只对白名单中的分区自动总结' },
+  { value: 'exclude', label: '排除选中分区', description: '黑名单分区不自动总结，其他分区照常' },
+];
+
 export const FeatureFlagsTab: React.FC<FeatureFlagsTabProps> = ({
   isDark,
   settings,
   onSaveSettings,
 }) => {
+  const categoryMode = settings.autoSummaryCategoryMode ?? 'all';
+  const selectedCategorySet = new Set<VideoCategoryKey>(settings.autoSummarizeCategories ?? []);
+
+  const saveCategoryMode = (mode: AutoSummaryCategoryMode) => {
+    const label = CATEGORY_MODES.find((item) => item.value === mode)?.label ?? mode;
+    onSaveSettings(
+      { ...settings, autoSummaryCategoryMode: mode },
+      `自动总结规则已设为「${label}」`
+    );
+  };
+
+  const toggleCategory = (key: VideoCategoryKey) => {
+    const next = new Set<VideoCategoryKey>(settings.autoSummarizeCategories ?? []);
+    const label = VIDEO_CATEGORY_ROOTS.find((item) => item.key === key)?.label ?? key;
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+    onSaveSettings(
+      { ...settings, autoSummarizeCategories: Array.from(next) },
+      `已${next.has(key) ? '加入' : '移出'}「${label}」分区`
+    );
+  };
+
+  const clearCategories = () => {
+    onSaveSettings({ ...settings, autoSummarizeCategories: [] }, '已清空分区选择');
+  };
+
+  const categoryHint =
+    categoryMode === 'include'
+      ? selectedCategorySet.size === 0
+        ? '不会自动总结任何视频，仍可手动生成。'
+        : '仅上述分区会自动总结，其他分区可手动生成。'
+      : selectedCategorySet.size === 0
+        ? '不会排除任何分区，所有视频按全局规则自动总结。'
+        : '上述分区不会自动总结，仍可手动生成。';
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-fade-in">
       {/* Section 1: Automation & Token Control */}
@@ -77,6 +128,132 @@ export const FeatureFlagsTab: React.FC<FeatureFlagsTabProps> = ({
             }
             icon={<Clock className="w-4 h-4" />}
           />
+        </div>
+
+        {/* 分区自动总结策略（只影响自动触发，缓存读取与手动生成不受限） */}
+        <div className="space-y-3">
+          <div>
+            <p className={`text-xs font-medium ${isDark ? 'text-slate-200' : 'text-slate-700'}`}>
+              按分区控制自动总结
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              规则只限制自动生成；已缓存结果仍可读取，手动生成始终可用。
+            </p>
+          </div>
+
+          <div
+            className="grid grid-cols-1 md:grid-cols-3 gap-2.5"
+            role="radiogroup"
+            aria-label="自动总结分区规则"
+          >
+            {CATEGORY_MODES.map((mode) => {
+              const active = categoryMode === mode.value;
+              return (
+                <label
+                  key={mode.value}
+                  className={`flex gap-2.5 rounded-xl border p-3 cursor-pointer transition-colors focus-within:ring-2 focus-within:ring-sky-500/60 ${
+                    active
+                      ? isDark
+                        ? 'border-sky-500 bg-sky-500/10'
+                        : 'border-sky-500 bg-sky-50'
+                      : isDark
+                        ? 'border-slate-800 bg-slate-900/40 hover:border-slate-700'
+                        : 'border-slate-200 bg-slate-50 hover:border-sky-300'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="autoSummaryCategoryMode"
+                    value={mode.value}
+                    checked={active}
+                    onChange={() => saveCategoryMode(mode.value)}
+                    className="mt-0.5 accent-sky-500"
+                  />
+                  <span className="space-y-0.5">
+                    <span
+                      className={`block text-xs font-semibold ${
+                        isDark ? 'text-white' : 'text-slate-900'
+                      }`}
+                    >
+                      {mode.label}
+                    </span>
+                    <span className="block text-[11px] leading-4 text-slate-400">
+                      {mode.description}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+
+          {categoryMode !== 'all' && (
+            <div
+              className={`rounded-xl border p-3.5 space-y-3 ${
+                isDark ? 'border-slate-800 bg-slate-900/30' : 'border-slate-200 bg-slate-50'
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p
+                    className={`text-xs font-medium ${
+                      isDark ? 'text-slate-200' : 'text-slate-700'
+                    }`}
+                  >
+                    {categoryMode === 'include' ? '自动总结白名单' : '自动总结排除名单'}
+                  </p>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    已选 {selectedCategorySet.size} 个分区
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearCategories}
+                  disabled={selectedCategorySet.size === 0}
+                  className={`rounded-lg border px-2.5 py-1 text-xs transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/60 ${
+                    selectedCategorySet.size === 0
+                      ? isDark
+                        ? 'cursor-not-allowed border-slate-700 text-slate-500'
+                        : 'cursor-not-allowed border-slate-200 text-slate-400'
+                      : isDark
+                        ? 'border-slate-700 text-slate-300 hover:border-slate-600 hover:bg-slate-800'
+                        : 'border-slate-300 text-slate-600 hover:border-sky-400 hover:bg-sky-50'
+                  }`}
+                >
+                  清空选择
+                </button>
+              </div>
+
+              <div
+                className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2"
+                aria-label="主分区选择"
+              >
+                {VIDEO_CATEGORY_ROOTS.map(({ key, label }) => {
+                  const selected = selectedCategorySet.has(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => toggleCategory(key)}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-sky-500/60 ${
+                        selected
+                          ? isDark
+                            ? 'border-sky-500 bg-sky-500/15 text-sky-300'
+                            : 'border-sky-500 bg-sky-50 text-sky-600'
+                          : isDark
+                            ? 'border-slate-700 bg-slate-800/60 text-slate-300 hover:border-slate-600 hover:bg-slate-700/60'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-sky-300 hover:bg-sky-50'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <p className="text-[11px] leading-4 text-slate-400">{categoryHint}</p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -175,7 +352,23 @@ export const FeatureFlagsTab: React.FC<FeatureFlagsTabProps> = ({
             }
             icon={<ShieldCheck className="w-4 h-4" />}
           />
+
+
+          <ToggleSwitch
+            label="HUD 收起后显示“心流”快捷按钮"
+            description="默认关闭；开启后即使收起 HUD，也会在播放器右上角保留一个可点击的重新打开入口。"
+            checked={settings.showClosedHudLauncher ?? false}
+            onChange={(val) =>
+              onSaveSettings(
+                { ...settings, showClosedHudLauncher: val },
+                `已${val ? '开启' : '关闭'}收起态快捷按钮`
+              )
+            }
+            icon={<Eye className="w-4 h-4" />}
+          />
         </div>
+
+
       </div>
 
       {/* Section 4: Visual & UX */}

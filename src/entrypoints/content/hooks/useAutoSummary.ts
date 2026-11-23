@@ -6,6 +6,10 @@ import {
   BiliRawSubtitleItem,
 } from '../../../types';
 import {
+  evaluateAutoSummaryGate,
+  type AutoSummarySkipReason,
+} from '../../../utils/autoSummaryPolicy';
+import {
   TranscriptLoadResult,
   TranscriptRequestCoordinator,
 } from './transcriptRequestCoordinator';
@@ -21,6 +25,7 @@ import { isCachedSummaryValid } from '../../../services/summaryCacheService';
 
 export interface UseAutoSummaryProps {
   settings: UserSettings;
+  settingsReady: boolean;
   onToast?: (msg: string) => void;
 }
 
@@ -29,6 +34,7 @@ export interface UseAutoSummaryReturn {
   loading: boolean;
   error: string | null;
   isManualMode: boolean;
+  manualReason: AutoSummarySkipReason | null;
   videoInfo: ResolvedVideoInfo | null;
   subtitles: BiliRawSubtitleItem[];
   transcriptLoading: boolean;
@@ -38,16 +44,16 @@ export interface UseAutoSummaryReturn {
   retryTranscript: () => Promise<void>;
 }
 
-
-
 export function useAutoSummary({
   settings,
+  settingsReady,
   onToast,
 }: UseAutoSummaryProps): UseAutoSummaryReturn {
   const [summary, setSummary] = useState<VideoSummaryResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
+  const [manualReason, setManualReason] = useState<AutoSummarySkipReason | null>(null);
   const [videoInfo, setVideoInfo] = useState<ResolvedVideoInfo | null>(null);
   const [subtitles, setSubtitles] = useState<BiliRawSubtitleItem[]>([]);
   const [transcriptLoading, setTranscriptLoading] = useState<boolean>(false);
@@ -136,7 +142,6 @@ export function useAutoSummary({
         return;
       }
 
-      // Cancel only the previous summary flow; transcript has its own lifecycle.
       if (summaryAbortControllerRef.current) {
         summaryAbortControllerRef.current.abort();
       }
@@ -181,8 +186,6 @@ export function useAutoSummary({
         const videoKey = `${resolved.bvid}_p${meta.pIndex}_${resolved.cid}`;
         currentVideoKeyRef.current = videoKey;
 
-        // Start transcript immediately. Cache and manual-mode early returns do
-        // not own this Promise, so the coordinator still publishes its result.
         void loadTranscript(videoKey, resolved);
 
         if (!forceRefresh) {
@@ -211,6 +214,7 @@ export function useAutoSummary({
             if (isValid && currentVideoKeyRef.current === videoKey) {
               setSummary(cached);
               setIsManualMode(false);
+              setManualReason(null);
               setLoading(false);
               return;
             }
@@ -226,19 +230,24 @@ export function useAutoSummary({
           }
         }
 
-        const isDurationTooShort =
-          videoDuration > 0 &&
-          typeof settings.minDurationForAutoSec === 'number' &&
-          videoDuration < settings.minDurationForAutoSec;
-        const shouldAutoSummarize = settings.autoSummarize && !isDurationTooShort;
+        const gate = evaluateAutoSummaryGate({
+          autoSummarize: settings.autoSummarize,
+          minDurationForAutoSec: settings.minDurationForAutoSec,
+          durationSec: videoDuration,
+          category: resolved.category,
+          categoryMode: settings.autoSummaryCategoryMode,
+          selectedCategories: settings.autoSummarizeCategories,
+        });
 
-        if (!explicitManualTrigger && !shouldAutoSummarize) {
+        if (!explicitManualTrigger && !gate.allowed) {
+          setManualReason(gate.reason);
           setIsManualMode(true);
           setLoading(false);
           setSummary(null);
           return;
         }
 
+        setManualReason(null);
         setIsManualMode(false);
         setLoading(true);
         setSummary(null);
@@ -328,6 +337,8 @@ export function useAutoSummary({
     [
       settings.autoSummarize,
       settings.minDurationForAutoSec,
+      settings.autoSummaryCategoryMode,
+      settings.autoSummarizeCategories,
       onToast,
       coordinator,
       loadTranscript,
@@ -335,8 +346,9 @@ export function useAutoSummary({
     ]
   );
 
-  // Monitor SPA URL / Video changes with 0ms reactive detection, DOM playlist observer & video stream sync
   useEffect(() => {
+    if (!settingsReady) return;
+
     let lastObservedKey = '';
 
     const handleVideoChange = (force = false) => {
@@ -359,6 +371,7 @@ export function useAutoSummary({
       setError(null);
       setLoading(false);
       setIsManualMode(false);
+      setManualReason(null);
       setVideoInfo(null);
       currentVideoKeyRef.current = '';
 
@@ -436,7 +449,7 @@ export function useAutoSummary({
       }
       cleanupPlayerInjections();
     };
-  }, [loadSummaryForCurrentVideo, coordinator]);
+  }, [loadSummaryForCurrentVideo, coordinator, settingsReady]);
 
   const triggerSummary = useCallback(
     async (forceRefresh = false) => {
@@ -461,6 +474,7 @@ export function useAutoSummary({
     loading,
     error,
     isManualMode,
+    manualReason,
     videoInfo,
     subtitles,
     transcriptLoading,

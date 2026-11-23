@@ -19,6 +19,8 @@ export interface TranscriptStreamProps {
   onRetry: () => void;
   onSeek: (seconds: number) => void;
   onManualInteraction: () => void;
+
+  searchInputRef: React.RefObject<HTMLInputElement>;
 }
 
 interface TranscriptRowProps {
@@ -93,6 +95,8 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
   onRetry,
   onSeek,
   onManualInteraction,
+
+  searchInputRef,
 }) => {
   const [query, setQuery] = useState<string>('');
   const hasInitialPositionedRef = useRef(false);
@@ -177,6 +181,8 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
         >
           <Search className="w-3.5 h-3.5 shrink-0 text-slate-400" />
           <input
+            ref={searchInputRef}
+            aria-label="搜索全文字幕"
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}

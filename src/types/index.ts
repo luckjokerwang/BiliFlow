@@ -63,6 +63,60 @@ export interface HighlightItem {
   originalQuotes?: OriginalQuote[]; // 3-5 original transcript quotes around this highlight
 }
 
+export type CreatorChapterSource = 'official' | 'description';
+
+export interface CreatorChapter {
+  from: number;
+  to: number;
+  title: string;
+}
+
+
+export type VideoCategoryKey =
+  | 'cinephile'
+  | 'entertainment'
+  | 'music'
+  | 'dance'
+  | 'douga'
+  | 'painting'
+  | 'kichiku'
+  | 'game'
+  | 'information'
+  | 'knowledge'
+  | 'ai'
+  | 'tech'
+  | 'car'
+  | 'fashion'
+  | 'home'
+  | 'outdoors'
+  | 'gym'
+  | 'sports'
+  | 'handmake'
+  | 'food'
+  | 'shortplay'
+  | 'travel'
+  | 'rural'
+  | 'animal'
+  | 'parenting'
+  | 'health'
+  | 'emotion'
+  | 'mysticism'
+  | 'vlog'
+  | 'life_joy'
+  | 'life_experience'
+  | 'anime'
+  | 'guochuang'
+  | 'documentary'
+  | 'movie'
+  | 'tv'
+  | 'life';
+
+export interface VideoCategoryInfo {
+  key: VideoCategoryKey;
+  label: string;
+  rawName?: string;
+}
+
 export interface VideoSummaryResult {
   bvid: string;
   cid: string;
@@ -78,6 +132,9 @@ export interface VideoSummaryResult {
   usedModel?: string;    // Actual model used (useful when fallback triggered)
   usedProviderName?: string; // Actual provider name used (useful when cross-provider fallback triggered)
   isFallbackUsed?: boolean;
+  chapterSource?: CreatorChapterSource;
+
+
 }
 
 export interface ResolvedVideoInfo {
@@ -87,10 +144,15 @@ export interface ResolvedVideoInfo {
   title: string;
   duration: number;
   description?: string;
+  tid?: number;
+  tidV2?: number;
+  tname?: string;
+  tnameV2?: string;
+  category?: VideoCategoryInfo | null;
 }
 
 export interface VideoPreflightMetadata {
-  officialChapters?: Array<{ from: number; to: number; title: string }>;
+  officialChapters?: CreatorChapter[];
   danmakuHeatmapPeaks?: Array<{ timestampSec: number; densityRatio: number }>;
   descriptionTimestamps?: Array<{ seconds: number; title: string }>;
 }

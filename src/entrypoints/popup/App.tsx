@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { UserSettings, ExtensionResponse } from '../../types';
 import { DEFAULT_SETTINGS } from '../../constants';
-import { ProviderLogo } from '../../components/ProviderIcons';
+import { resolveShortcut } from '../../utils/shortcutDefinitions';
 import { browser } from 'wxt/browser';
 
 export const App: React.FC = () => {
@@ -286,7 +286,7 @@ export const App: React.FC = () => {
                 : 'bg-white border-slate-200 text-sky-600'
             }`}
           >
-            {settings.shortcutToggle || 'Alt+S'}
+            {resolveShortcut('toggle', settings)}
           </kbd>
         </div>
         <div className="flex items-center justify-between opacity-80">

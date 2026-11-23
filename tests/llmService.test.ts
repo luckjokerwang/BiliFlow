@@ -816,3 +816,145 @@ describe('hierarchical Map-Reduce summary pipeline', () => {
     expect(result.usedModel).toBe('fallback-model');
   });
 });
+
+describe('creator chapter structure in generated summaries', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  const provider: ProviderConfig = {
+    id: 'chapter-test',
+    name: 'Chapter Test',
+    baseUrl: 'https://chapter.test/v1',
+    apiKey: 'key',
+    enabled: true,
+    models: ['chapter-model'],
+    selectedModel: 'chapter-model',
+  };
+
+  function mockLLM(content: string): void {
+    global.fetch = vi.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            choices: [{ message: { content } }],
+          }),
+        text: () => Promise.resolve(''),
+      } as unknown as Response)
+    ) as unknown as typeof fetch;
+  }
+
+  it('uses official chapter titles and starts regardless of LLM drift', async () => {
+    mockLLM(
+      JSON.stringify({
+        oneSentenceSummary: '章节总结',
+        highlights: [
+          { timestamp: '00:05', title: '模型改标题一', keyPoint: '开场具体结论' },
+          { timestamp: '00:20', title: '模型改标题二', keyPoint: '开场次要结论' },
+          { timestamp: '01:10', title: '模型改标题三', keyPoint: '方法具体步骤' },
+        ],
+      })
+    );
+
+    const result = await generateVideoSummary({
+      bvid: 'BV1Official',
+      cid: '1',
+      title: '官方章节测试',
+      subtitles: [
+        { from: 0, to: 30, content: '开场字幕' },
+        { from: 60, to: 120, content: '方法字幕' },
+      ],
+      durationSec: 180,
+      preflight: {
+        officialChapters: [
+          { from: 0, to: 60, title: '原章节一' },
+          { from: 60, to: 180, title: '原章节二' },
+        ],
+      },
+      provider,
+      enableFallback: false,
+    });
+
+    expect(result.chapterSource).toBe('official');
+    expect(result.highlights).toHaveLength(2);
+    expect(result.highlights[0]).toMatchObject({
+      title: '原章节一',
+      timestamp: 0,
+      timestampStr: '00:00',
+      keyPoint: '开场具体结论',
+    });
+    expect(result.highlights[1]).toMatchObject({
+      title: '原章节二',
+      timestamp: 60,
+      timestampStr: '01:00',
+      keyPoint: '方法具体步骤',
+    });
+  });
+
+  it('uses description chapters only when at least two timestamps exist', async () => {
+    mockLLM(
+      JSON.stringify({
+        oneSentenceSummary: '简介章节总结',
+        highlights: [
+          { timestamp: '00:15', title: '模型一', keyPoint: '第一段内容' },
+          { timestamp: '01:20', title: '模型二', keyPoint: '第二段内容' },
+        ],
+      })
+    );
+
+    const result = await generateVideoSummary({
+      bvid: 'BV1Desc',
+      cid: '2',
+      title: '简介章节测试',
+      subtitles: [
+        { from: 0, to: 30, content: '第一段字幕' },
+        { from: 60, to: 120, content: '第二段字幕' },
+      ],
+      durationSec: 180,
+      preflight: {
+        descriptionTimestamps: [
+          { seconds: 10, title: '简介段一' },
+          { seconds: 70, title: '简介段二' },
+        ],
+      },
+      provider,
+      enableFallback: false,
+    });
+
+    expect(result.chapterSource).toBe('description');
+    expect(result.highlights.map((h) => h.title)).toEqual(['简介段一', '简介段二']);
+    expect(result.highlights.map((h) => h.timestamp)).toEqual([10, 70]);
+  });
+
+  it('does not apply chapter structure for a single description point', async () => {
+    mockLLM(
+      JSON.stringify({
+        oneSentenceSummary: 'AI 节点总结',
+        highlights: [
+          { timestamp: '00:05', title: 'AI 节点', keyPoint: '内容' },
+        ],
+      })
+    );
+
+    const result = await generateVideoSummary({
+      bvid: 'BV1SingleDesc',
+      cid: '3',
+      title: '单点简介测试',
+      subtitles: [{ from: 0, to: 30, content: '字幕' }],
+      durationSec: 180,
+      preflight: {
+        descriptionTimestamps: [{ seconds: 10, title: '唯一简介点' }],
+      },
+      provider,
+      enableFallback: false,
+    });
+
+    expect(result.chapterSource).toBeUndefined();
+    expect(result.highlights[0].title).toBe('AI 节点');
+  });
+});

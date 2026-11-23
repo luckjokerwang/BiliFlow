@@ -312,5 +312,46 @@ describe('summaryCacheService', () => {
 
       expect(valid).toBe(false);
     });
+
+    it('accepts a long video with a single official chapter spanning the whole video', () => {
+      const chapterSummary: VideoSummaryResult = {
+        bvid: 'BV1Chapter',
+        cid: '90001',
+        title: '章节视频',
+        oneSentenceSummary: '全片章节总结',
+        highlights: [
+          {
+            id: 'chapter-1',
+            timestamp: 30,
+            timestampSec: 30,
+            timestampStr: '00:30',
+            title: '全片章节',
+            keyPoint: '章节要点',
+          },
+        ],
+        createdAt: 1000,
+        schemaVersion: 2,
+        chapterSource: 'official',
+      };
+
+      expect(
+        isCachedSummaryValid(chapterSummary, {
+          bvid: 'BV1Chapter',
+          cid: '90001',
+          title: '章节视频',
+          duration: 1200,
+        })
+      ).toBe(true);
+
+      const aiSummary = { ...chapterSummary, chapterSource: undefined };
+      expect(
+        isCachedSummaryValid(aiSummary, {
+          bvid: 'BV1Chapter',
+          cid: '90001',
+          title: '章节视频',
+          duration: 1200,
+        })
+      ).toBe(false);
+    });
   });
 });

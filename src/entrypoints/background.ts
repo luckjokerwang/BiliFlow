@@ -1,6 +1,9 @@
 import { defineBackground } from 'wxt/sandbox';
 import { browser } from 'wxt/browser';
 import { ExtensionMessage, ExtensionResponse, UserSettings, ResolvedVideoInfo } from '../types';
+import type { VideoCategoryInfo } from '../types';
+import { resolveVideoCategory } from '../utils/videoCategory';
+
 import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../constants';
 import {
   fetchBilibiliSubtitles,
@@ -106,6 +109,31 @@ export default defineBackground(() => {
             cid = String(json.data.cid || '');
           }
 
+          const tid =
+            typeof json.data.tid === 'number' && Number.isInteger(json.data.tid) && json.data.tid > 0
+              ? json.data.tid
+              : undefined;
+          const tidV2 =
+            typeof json.data.tid_v2 === 'number' &&
+            Number.isInteger(json.data.tid_v2) &&
+            json.data.tid_v2 > 0
+              ? json.data.tid_v2
+              : undefined;
+          const tname =
+            typeof json.data.tname === 'string' && json.data.tname.trim()
+              ? json.data.tname
+              : undefined;
+          const tnameV2 =
+            typeof json.data.tname_v2 === 'string' && json.data.tname_v2.trim()
+              ? json.data.tname_v2
+              : undefined;
+          const category: VideoCategoryInfo | null = resolveVideoCategory({
+            tid,
+            tidV2,
+            tname,
+            tnameV2,
+          });
+
           const resolved: ResolvedVideoInfo = {
             bvid,
             cid,
@@ -113,6 +141,11 @@ export default defineBackground(() => {
             title,
             duration,
             description: String(json.data.desc || ''),
+            tid,
+            tidV2,
+            tname,
+            tnameV2,
+            category,
           };
 
           return { success: true, data: resolved };

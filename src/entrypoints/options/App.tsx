@@ -5,6 +5,8 @@ import { ProviderConfig, UserSettings, ExtensionResponse, ThemeMode } from '../.
 import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../../constants';
 import { mergeSettingsWithDefaults } from '../../services/settingsService';
 
+import { SHORTCUT_DEFINITIONS, validateShortcutBinding, type ShortcutAction } from '../../utils/shortcutDefinitions';
+
 import { toggleThemeWithTransition } from '../../utils/themeTransition';
 import { OptionsHeader } from './components/OptionsHeader';
 import { ProviderSidebarList } from './components/ProviderSidebarList';
@@ -88,9 +90,7 @@ export const App: React.FC = () => {
   const [testResults, setTestResults] = useState<TestResultMap>({});
 
   const [savedToast, setSavedToast] = useState<string | null>(null);
-  const [recordingTarget, setRecordingTarget] = useState<
-    'toggle' | 'prev' | 'next' | 'quotes' | 'quickNote' | null
-  >(null);
+  const [recordingTarget, setRecordingTarget] = useState<ShortcutAction | null>(null);
   const [importJsonText, setImportJsonText] = useState<string>('');
 
   // Model Picker Modal State
@@ -420,26 +420,47 @@ export const App: React.FC = () => {
 
       const keyName = e.key.length === 1 ? e.key.toUpperCase() : e.key;
       keys.push(keyName);
-
       const combo = keys.join('+');
 
-      if (recordingTarget === 'toggle') {
-        saveSettings({ ...settings, shortcutToggle: combo }, `HUD 呼出快捷键已更新为: ${combo}`);
-      } else if (recordingTarget === 'quickNote') {
-        saveSettings({ ...settings, shortcutQuickNote: combo }, `一键笔记截图快捷键已更新为: ${combo}`);
-      } else if (recordingTarget === 'prev') {
-        saveSettings({ ...settings, shortcutPrevNode: combo }, `上一个节点快捷键已更新为: ${combo}`);
-      } else if (recordingTarget === 'next') {
-        saveSettings({ ...settings, shortcutNextNode: combo }, `下一个节点快捷键已更新为: ${combo}`);
-      } else if (recordingTarget === 'quotes') {
-        saveSettings({ ...settings, shortcutToggleQuotes: combo }, `展开字幕快捷键已更新为: ${combo}`);
+      const result = validateShortcutBinding({ action: recordingTarget, binding: combo, settings });
+      if (!result.ok) {
+        triggerToast(result.message);
+        return;
       }
+
+      const definition = SHORTCUT_DEFINITIONS.find((item) => item.action === recordingTarget);
+      if (!definition) return;
+      const updated = { ...settings, [definition.settingKey]: combo } as UserSettings;
+      saveSettings(updated, `「${definition.label}」快捷键已更新为: ${combo}`);
       setRecordingTarget(null);
     };
 
     window.addEventListener('keydown', handleKeydown, true);
     return () => window.removeEventListener('keydown', handleKeydown, true);
   }, [recordingTarget, settings]);
+
+  const handleRestoreShortcutDefault = (action: ShortcutAction) => {
+    const definition = SHORTCUT_DEFINITIONS.find((item) => item.action === action);
+    if (!definition) return;
+    const result = validateShortcutBinding({
+      action,
+      binding: definition.defaultValue,
+      settings,
+    });
+    if (!result.ok) {
+      triggerToast(result.message);
+      return;
+    }
+    const updated = { ...settings, [definition.settingKey]: definition.defaultValue } as UserSettings;
+    saveSettings(updated, `已恢复默认快捷键 ${definition.defaultValue}`);
+  };
+
+  const handleClearShortcut = (action: ShortcutAction) => {
+    const definition = SHORTCUT_DEFINITIONS.find((item) => item.action === action);
+    if (!definition) return;
+    const updated = { ...settings, [definition.settingKey]: '' } as UserSettings;
+    saveSettings(updated, `已禁用「${definition.label}」快捷键`);
+  };
 
   // Export / Import
   const handleExportConfig = () => {
@@ -614,8 +635,10 @@ export const App: React.FC = () => {
             isDark={isDark}
             settings={settings}
             recordingTarget={recordingTarget}
-            setRecordingTarget={setRecordingTarget}
             onSaveSettings={saveSettings}
+            onClearShortcut={handleClearShortcut}
+            setRecordingTarget={setRecordingTarget}
+            onRestoreDefault={handleRestoreShortcutDefault}
           />
         )}
 

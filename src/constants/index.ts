@@ -134,5 +134,13 @@ export const DEFAULT_SETTINGS: UserSettings = {
   shortcutNextNode: 'J',
   shortcutToggleQuotes: 'O',
   shortcutQuickNote: 'Alt+N',
+  shortcutRefresh: 'Alt+R',
+  shortcutCopyMarkdown: 'Alt+C',
+  shortcutSearchTranscript: '/',
+  shortcutHelp: 'Alt+H',
+  shortcutPrevView: '[',
+  shortcutNextView: ']',
+  shortcutPrevHighlightArrow: 'ArrowUp',
+  shortcutNextHighlightArrow: 'ArrowDown',
   theme: 'dark',
 };
