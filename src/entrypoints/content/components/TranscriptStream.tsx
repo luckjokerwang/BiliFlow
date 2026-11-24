@@ -21,6 +21,9 @@ export interface TranscriptStreamProps {
   onManualInteraction: () => void;
 
   searchInputRef: React.RefObject<HTMLInputElement>;
+  listRef?: React.RefObject<HTMLDivElement>;
+
+
 }
 
 interface TranscriptRowProps {
@@ -94,13 +97,17 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
   shouldAutoFollow,
   onRetry,
   onSeek,
+  listRef: externalListRef,
+
   onManualInteraction,
 
   searchInputRef,
 }) => {
   const [query, setQuery] = useState<string>('');
   const hasInitialPositionedRef = useRef(false);
-  const listRef = useRef<HTMLDivElement | null>(null);
+
+  const innerListRef = useRef<HTMLDivElement | null>(null);
+  const listRef = externalListRef ?? innerListRef;
 
   const activeIndex = useMemo(
     () => findActiveTranscriptIndex(items, currentPlaybackSec),

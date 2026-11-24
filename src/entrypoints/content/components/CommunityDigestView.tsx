@@ -9,6 +9,9 @@ export interface CommunityDigestViewProps {
   loading: boolean;
   error: string | null;
   onRetry: () => void;
+  listRef?: React.RefObject<HTMLDivElement>;
+
+
   onSeek: (seconds: number) => void;
 }
 
@@ -19,7 +22,9 @@ export const CommunityDigestView: React.FC<CommunityDigestViewProps> = ({
   error,
   onRetry,
   onSeek,
+  listRef,
 }) => {
+
   if (loading && !digest) {
     return (
       <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 text-slate-400">
@@ -60,7 +65,7 @@ export const CommunityDigestView: React.FC<CommunityDigestViewProps> = ({
     : 'bg-slate-50 border-slate-200 text-slate-800';
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto space-y-4">
+    <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto space-y-4">
       <section className={`p-3 rounded-xl border ${panelClass}`}>
         <div className="flex items-center justify-between text-[11px] font-semibold mb-2">
           <span className="flex items-center gap-1.5">

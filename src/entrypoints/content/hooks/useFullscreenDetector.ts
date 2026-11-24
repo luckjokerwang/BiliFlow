@@ -176,19 +176,20 @@ export function useFullscreenDetector({
         onViewModeChange(getNextHudViewMode(viewMode, false));
         return;
       }
-
-      // HUD 展开时 ↑/↓ 始终由 HUD 接管；同时拦截 keyup，避免 B 站播放器调音量。
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         consumeKey(e);
         const direction: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
         if (!isShortcutHelpOpen && viewMode === 'summary') {
-          const callback = direction < 0 ? onPrevHighlightArrow : onNextHighlightArrow;
-          callback?.();
+          if (!e.repeat) {
+            const callback = direction < 0 ? onPrevHighlightArrow : onNextHighlightArrow;
+            callback?.();
+          }
         } else {
           onScrollCurrentView?.(direction);
         }
         return;
       }
+
 
       if (viewMode === 'transcript') {
         if (matchesShortcut(e, resolveShortcut('searchTranscript', settings))) {
@@ -231,11 +232,11 @@ export function useFullscreenDetector({
         }
       }
     };
-
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (!isOpen || isUserTyping(e)) return;
+      if (!isOpen || !isFullscreen || isUserTyping(e)) return;
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') consumeKey(e);
     };
+
 
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
@@ -264,6 +265,7 @@ export function useFullscreenDetector({
     onPrevHighlightArrow,
     onNextHighlightArrow,
     hasSummary,
+    isFullscreen,
   ]);
 
   return { isFullscreen };

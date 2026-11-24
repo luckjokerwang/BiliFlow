@@ -45,6 +45,9 @@ export const HudOverlay: React.FC = () => {
   const openButtonRef = useRef<HTMLButtonElement | null>(null);
   const helpTriggerRef = useRef<HTMLButtonElement | null>(null);
 
+  const transcriptListRef = useRef<HTMLDivElement | null>(null);
+  const communityListRef = useRef<HTMLDivElement | null>(null);
+
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const openedByUserRef = useRef<boolean>(false);
@@ -368,15 +371,17 @@ export const HudOverlay: React.FC = () => {
     },
 
     onScrollCurrentView: (direction) => {
-      const root = hudContainerRef.current;
-      if (!root) return;
-      const candidates = Array.from(root.querySelectorAll<HTMLElement>('*')).filter(
-        (el) => el.scrollHeight > el.clientHeight + 1
-      );
-      const container = candidates[0] || scrollContainerRef.current;
+      const container =
+        viewMode === 'transcript'
+          ? transcriptListRef.current
+          : viewMode === 'community'
+          ? communityListRef.current
+          : scrollContainerRef.current;
       if (!container) return;
       markUserManualAction();
-      container.scrollBy({ top: direction * 96, behavior: 'smooth' });
+      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
+      const next = Math.max(0, Math.min(maxScrollTop, container.scrollTop + direction * 96));
+      container.scrollTop = next;
     },
 
     hasSummary: Boolean(summary?.highlights?.length),
@@ -689,8 +694,11 @@ export const HudOverlay: React.FC = () => {
                   seekTo(seconds);
                   showToast('已跳转至高能弹幕');
                 }}
+                listRef={communityListRef}
               />
             </div>
+
+
           ) : (
             <div className="flex-1 min-h-0 flex flex-col p-4">
               <TranscriptStream
@@ -706,8 +714,11 @@ export const HudOverlay: React.FC = () => {
                 onSeek={seekTo}
                 searchInputRef={searchInputRef}
                 onManualInteraction={markUserManualAction}
+                listRef={transcriptListRef}
               />
             </div>
+
+
           )}
         </div>
       )}
