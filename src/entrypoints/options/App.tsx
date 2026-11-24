@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { Cpu, SlidersHorizontal, Keyboard, FileJson } from 'lucide-react';
+import { Cpu, SlidersHorizontal, Keyboard, FileJson, Github } from 'lucide-react';
 import { browser } from 'wxt/browser';
 import { ProviderConfig, UserSettings, ExtensionResponse, ThemeMode } from '../../types';
-import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS } from '../../constants';
+import { DEFAULT_PROVIDERS, DEFAULT_SETTINGS, GITHUB_REPO_URL } from '../../constants';
 import { mergeSettingsWithDefaults } from '../../services/settingsService';
 
 import { SHORTCUT_DEFINITIONS, validateShortcutBinding, type ShortcutAction } from '../../utils/shortcutDefinitions';
@@ -592,14 +592,31 @@ export const App: React.FC = () => {
 
         {/* Footer info */}
         <div
-          className={`p-4 border-t text-[11px] space-y-0.5 ${
+          className={`p-4 border-t text-[11px] flex items-center justify-between ${
             isDark
               ? 'border-slate-800/80 text-slate-500'
               : 'border-slate-200 text-slate-400 bg-slate-50/50'
           }`}
         >
-          <p className="font-medium">BiliFlow 设置工作台</p>
-          <p className="text-[10px] font-mono">BYOK · 0 远程上传 · 纯本地存储</p>
+          <div className="space-y-0.5">
+            <p className="font-medium">BiliFlow 设置工作台</p>
+            <p className="text-[10px] font-mono">BYOK · 0 远程上传 · 纯本地存储</p>
+          </div>
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-lg border text-[11px] transition-all cursor-pointer ${
+              isDark
+                ? 'bg-slate-800/60 border-slate-700/70 text-slate-400 hover:text-sky-400 hover:border-slate-600 hover:bg-slate-800'
+                : 'bg-white border-slate-200 text-slate-600 hover:text-sky-600 hover:border-slate-300 hover:bg-slate-50 shadow-xs'
+            }`}
+            title="GitHub 开源项目 · 欢迎 Star 与提交反馈 / Issue"
+            aria-label="GitHub 仓库"
+          >
+            <Github className="w-3.5 h-3.5" />
+            <span className="font-medium">Star</span>
+          </a>
         </div>
       </div>
 

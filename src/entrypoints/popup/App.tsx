@@ -6,9 +6,10 @@ import {
   CheckCircle2,
   AlertCircle,
   ExternalLink,
+  Github,
 } from 'lucide-react';
 import { UserSettings, ExtensionResponse } from '../../types';
-import { DEFAULT_SETTINGS } from '../../constants';
+import { DEFAULT_SETTINGS, GITHUB_REPO_URL } from '../../constants';
 import { resolveShortcut } from '../../utils/shortcutDefinitions';
 import { browser } from 'wxt/browser';
 
@@ -152,17 +153,35 @@ export const App: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={openOptionsPage}
-          className={`p-1.5 rounded-lg transition-colors cursor-pointer ${
-            isDark
-              ? 'text-slate-400 hover:text-white hover:bg-slate-800'
-              : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
-          }`}
-          title="打开设置中心"
-        >
-          <Settings className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <a
+            href={GITHUB_REPO_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
+              isDark
+                ? 'text-slate-400 hover:text-sky-400 hover:bg-slate-800'
+                : 'text-slate-500 hover:text-sky-600 hover:bg-slate-100'
+            }`}
+            title="GitHub 开源项目 · 欢迎 Star 与提交反馈 / Issue"
+            aria-label="GitHub 仓库"
+          >
+            <Github className="w-4 h-4" />
+          </a>
+
+          <button
+            onClick={openOptionsPage}
+            className={`p-1.5 rounded-lg transition-colors cursor-pointer flex items-center justify-center ${
+              isDark
+                ? 'text-slate-400 hover:text-white hover:bg-slate-800'
+                : 'text-slate-500 hover:text-slate-900 hover:bg-slate-100'
+            }`}
+            title="打开设置中心"
+            aria-label="打开设置中心"
+          >
+            <Settings className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Provider Quick Switcher */}
@@ -292,6 +311,23 @@ export const App: React.FC = () => {
         <div className="flex items-center justify-between opacity-80">
           <span>1~9: 直达节点 · J/K: 上下选择 · Esc: 退出</span>
         </div>
+      </div>
+
+      {/* Footer Status Bar with GitHub Link */}
+      <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5 px-0.5">
+        <span className="opacity-80">BYOK · 纯本地存储</span>
+        <a
+          href={GITHUB_REPO_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`inline-flex items-center gap-1 font-medium transition-colors cursor-pointer ${
+            isDark ? 'text-slate-400 hover:text-sky-400' : 'text-slate-500 hover:text-sky-600'
+          }`}
+          title="GitHub 开源项目 · 欢迎 Star 与提交反馈 / Issue"
+        >
+          <Github className="w-3 h-3" />
+          <span>Star & 反馈</span>
+        </a>
       </div>
     </div>
   );

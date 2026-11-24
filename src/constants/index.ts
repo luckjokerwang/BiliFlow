@@ -1,5 +1,7 @@
 import { ProviderConfig, UserSettings } from '../types';
 
+export const GITHUB_REPO_URL = 'https://github.com/luckjokerwang/BiliFlow';
+
 export const DEFAULT_PROVIDERS: ProviderConfig[] = [
   {
     id: 'deepseek',
