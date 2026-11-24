@@ -20,7 +20,9 @@ export interface UseFullscreenDetectorProps {
   isShortcutHelpOpen?: boolean;
   onRefresh?: () => void;
   onCopyMarkdown?: () => void;
+  /** @deprecated Arrow keys now smoothly scroll the current view instead of jumping highlights */
   onPrevHighlightArrow?: () => void;
+  /** @deprecated Arrow keys now smoothly scroll the current view instead of jumping highlights */
   onNextHighlightArrow?: () => void;
   onSearchTranscript?: () => void;
   onScrollCurrentView?: (direction: -1 | 1) => void;
@@ -60,10 +62,161 @@ export function matchesShortcut(e: KeyboardEvent, shortcutStr?: string): boolean
   );
 }
 
-function consumeKey(e: KeyboardEvent): void {
+export function consumeKey(e: KeyboardEvent): void {
   e.preventDefault();
   e.stopPropagation();
   e.stopImmediatePropagation();
+}
+
+export interface HandleFullscreenKeyDownOptions {
+  isOpen: boolean;
+  viewMode: HudViewMode;
+  settings: UserSettings;
+  isShortcutHelpOpen?: boolean;
+  hasSummary?: boolean;
+  onToggleHelp?: () => void;
+  onClose?: () => void;
+  onToggleOpen?: () => void;
+  onQuickNote?: () => void;
+  onViewModeChange?: (mode: HudViewMode) => void;
+  onRefresh?: () => void;
+  onCopyMarkdown?: () => void;
+  onSearchTranscript?: () => void;
+  onScrollCurrentView?: (direction: -1 | 1) => void;
+  onPrevHighlight?: () => void;
+  onNextHighlight?: () => void;
+  onToggleQuotes?: () => void;
+  onNumberKeySeek?: (digit: number) => void;
+}
+
+export function handleFullscreenKeyDown(
+  e: KeyboardEvent,
+  options: HandleFullscreenKeyDownOptions
+): boolean {
+  const {
+    isOpen,
+    viewMode,
+    settings,
+    isShortcutHelpOpen = false,
+    hasSummary = false,
+    onToggleHelp,
+    onClose,
+    onToggleOpen,
+    onQuickNote,
+    onViewModeChange,
+    onRefresh,
+    onCopyMarkdown,
+    onSearchTranscript,
+    onScrollCurrentView,
+    onPrevHighlight,
+    onNextHighlight,
+    onToggleQuotes,
+    onNumberKeySeek,
+  } = options;
+
+  if (e.key === 'Escape' && isOpen) {
+    consumeKey(e);
+    if (isShortcutHelpOpen) onToggleHelp?.();
+    else onClose?.();
+    return true;
+  }
+
+  if (isUserTyping(e)) return false;
+
+  if (matchesShortcut(e, resolveShortcut('toggle', settings))) {
+    consumeKey(e);
+    onToggleOpen?.();
+    return true;
+  }
+  if (matchesShortcut(e, resolveShortcut('quickNote', settings))) {
+    consumeKey(e);
+    onQuickNote?.();
+    return true;
+  }
+
+  if (!isOpen) return false;
+
+  if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    consumeKey(e);
+    onViewModeChange?.(getNextHudViewMode(viewMode, e.shiftKey));
+    return true;
+  }
+
+  if (matchesShortcut(e, resolveShortcut('help', settings))) {
+    consumeKey(e);
+    onToggleHelp?.();
+    return true;
+  }
+  if (matchesShortcut(e, resolveShortcut('refresh', settings))) {
+    consumeKey(e);
+    onRefresh?.();
+    return true;
+  }
+  if (matchesShortcut(e, resolveShortcut('copyMarkdown', settings))) {
+    if (!hasSummary) return false;
+    consumeKey(e);
+    onCopyMarkdown?.();
+    return true;
+  }
+  if (matchesShortcut(e, resolveShortcut('prevView', settings))) {
+    consumeKey(e);
+    onViewModeChange?.(getNextHudViewMode(viewMode, true));
+    return true;
+  }
+  if (matchesShortcut(e, resolveShortcut('nextView', settings))) {
+    consumeKey(e);
+    onViewModeChange?.(getNextHudViewMode(viewMode, false));
+    return true;
+  }
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    consumeKey(e);
+    const direction: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
+    onScrollCurrentView?.(direction);
+    return true;
+  }
+
+  if (viewMode === 'transcript') {
+    if (matchesShortcut(e, resolveShortcut('searchTranscript', settings))) {
+      consumeKey(e);
+      onSearchTranscript?.();
+      return true;
+    }
+    return false;
+  }
+  if (viewMode !== 'summary') return false;
+
+  if (matchesShortcut(e, resolveShortcut('prev', settings))) {
+    consumeKey(e);
+    onPrevHighlight?.();
+    return true;
+  }
+  if (matchesShortcut(e, resolveShortcut('next', settings))) {
+    consumeKey(e);
+    onNextHighlight?.();
+    return true;
+  }
+  if (matchesShortcut(e, resolveShortcut('quotes', settings))) {
+    consumeKey(e);
+    onToggleQuotes?.();
+    return true;
+  }
+
+  if (
+    settings.enableNumberKeySeek &&
+    !e.ctrlKey &&
+    !e.altKey &&
+    !e.metaKey &&
+    !e.shiftKey
+  ) {
+    const digit = parseInt(e.key, 10);
+    if (digit >= 1 && digit <= 9) {
+      consumeKey(e);
+      onNumberKeySeek?.(digit);
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function useFullscreenDetector({
@@ -82,8 +235,6 @@ export function useFullscreenDetector({
   isShortcutHelpOpen = false,
   onRefresh,
   onCopyMarkdown,
-  onPrevHighlightArrow,
-  onNextHighlightArrow,
   onSearchTranscript,
   onScrollCurrentView,
   hasSummary = false,
@@ -122,121 +273,32 @@ export function useFullscreenDetector({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        consumeKey(e);
-        if (isShortcutHelpOpen) onToggleHelp?.();
-        else onClose();
-        return;
-      }
-
-      if (isUserTyping(e)) return;
-
-      if (matchesShortcut(e, resolveShortcut('toggle', settings))) {
-        consumeKey(e);
-        onToggleOpen();
-        return;
-      }
-      if (matchesShortcut(e, resolveShortcut('quickNote', settings))) {
-        consumeKey(e);
-        onQuickNote?.();
-        return;
-      }
-
-      if (!isOpen) return;
-
-      if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
-        consumeKey(e);
-        onViewModeChange(getNextHudViewMode(viewMode, e.shiftKey));
-        return;
-      }
-
-      if (matchesShortcut(e, resolveShortcut('help', settings))) {
-        consumeKey(e);
-        onToggleHelp?.();
-        return;
-      }
-      if (matchesShortcut(e, resolveShortcut('refresh', settings))) {
-        consumeKey(e);
-        onRefresh?.();
-        return;
-      }
-      if (matchesShortcut(e, resolveShortcut('copyMarkdown', settings))) {
-        if (!hasSummary) return;
-        consumeKey(e);
-        onCopyMarkdown?.();
-        return;
-      }
-      if (matchesShortcut(e, resolveShortcut('prevView', settings))) {
-        consumeKey(e);
-        onViewModeChange(getNextHudViewMode(viewMode, true));
-        return;
-      }
-      if (matchesShortcut(e, resolveShortcut('nextView', settings))) {
-        consumeKey(e);
-        onViewModeChange(getNextHudViewMode(viewMode, false));
-        return;
-      }
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        consumeKey(e);
-        const direction: -1 | 1 = e.key === 'ArrowUp' ? -1 : 1;
-        if (!isShortcutHelpOpen && viewMode === 'summary') {
-          if (!e.repeat) {
-            const callback = direction < 0 ? onPrevHighlightArrow : onNextHighlightArrow;
-            callback?.();
-          }
-        } else {
-          onScrollCurrentView?.(direction);
-        }
-        return;
-      }
-
-
-      if (viewMode === 'transcript') {
-        if (matchesShortcut(e, resolveShortcut('searchTranscript', settings))) {
-          consumeKey(e);
-          onSearchTranscript?.();
-          return;
-        }
-        return;
-      }
-      if (viewMode !== 'summary') return;
-
-      if (matchesShortcut(e, resolveShortcut('prev', settings))) {
-        consumeKey(e);
-        onPrevHighlight?.();
-        return;
-      }
-      if (matchesShortcut(e, resolveShortcut('next', settings))) {
-        consumeKey(e);
-        onNextHighlight?.();
-        return;
-      }
-      if (matchesShortcut(e, resolveShortcut('quotes', settings))) {
-        consumeKey(e);
-        onToggleQuotes?.();
-        return;
-      }
-
-      if (
-        settings.enableNumberKeySeek &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !e.metaKey &&
-        !e.shiftKey
-      ) {
-        const digit = parseInt(e.key, 10);
-        if (digit >= 1 && digit <= 9) {
-          consumeKey(e);
-          onNumberKeySeek?.(digit);
-          return;
-        }
-      }
+      handleFullscreenKeyDown(e, {
+        isOpen,
+        viewMode,
+        settings,
+        isShortcutHelpOpen,
+        hasSummary,
+        onToggleHelp,
+        onClose,
+        onToggleOpen,
+        onQuickNote,
+        onViewModeChange,
+        onRefresh,
+        onCopyMarkdown,
+        onSearchTranscript,
+        onScrollCurrentView,
+        onPrevHighlight,
+        onNextHighlight,
+        onToggleQuotes,
+        onNumberKeySeek,
+      });
     };
+
     const handleKeyUp = (e: KeyboardEvent) => {
-      if (!isOpen || !isFullscreen || isUserTyping(e)) return;
+      if (!isOpen || isUserTyping(e)) return;
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') consumeKey(e);
     };
-
 
     window.addEventListener('keydown', handleKeyDown, true);
     window.addEventListener('keyup', handleKeyUp, true);
@@ -262,10 +324,7 @@ export function useFullscreenDetector({
     onCopyMarkdown,
     onSearchTranscript,
     onScrollCurrentView,
-    onPrevHighlightArrow,
-    onNextHighlightArrow,
     hasSummary,
-    isFullscreen,
   ]);
 
   return { isFullscreen };
