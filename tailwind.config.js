@@ -14,6 +14,16 @@ export default {
         }
       },
       fontFamily: {
+        sans: [
+          'Inter',
+          '-apple-system',
+          'BlinkMacSystemFont',
+          "'HarmonyOS Sans SC'",
+          "'PingFang SC'",
+          "'Microsoft YaHei UI'",
+          "'Noto Sans CJK SC'",
+          'sans-serif',
+        ],
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace'],
       },
       animation: {

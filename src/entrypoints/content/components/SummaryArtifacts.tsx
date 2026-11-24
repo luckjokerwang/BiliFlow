@@ -19,7 +19,7 @@ export const SummaryArtifacts: React.FC<SummaryArtifactsProps> = ({
     return null;
   }
 
-  const sectionClass = `p-3 rounded-xl border text-xs leading-relaxed ${
+  const sectionClass = `p-3 rounded-xl border text-[13px] leading-relaxed ${
     isDark
       ? 'bg-slate-800/40 border-slate-700/50 text-slate-200'
       : 'bg-slate-50 border-slate-200 text-slate-700'
@@ -75,7 +75,7 @@ export const SummaryArtifacts: React.FC<SummaryArtifactsProps> = ({
                 }`}
                 title="点击跳转到该字幕"
               >
-                <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-500 shrink-0">
+                <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-500 shrink-0">
                   {quote.timestampStr}
                 </span>
                 <p className="flex-1 min-w-0">{quote.content}</p>

@@ -60,11 +60,11 @@ export const VideoDescriptionCard: React.FC<VideoDescriptionCardProps> = ({
         className="flex items-center justify-between cursor-pointer select-none"
         title={isExpanded ? '点击收起简介' : '点击展开完整简介'}
       >
-        <span className="flex items-center gap-1.5 text-[11px] font-semibold">
+        <span className="flex items-center gap-1.5 text-xs font-semibold">
           <FileText className="w-3.5 h-3.5 text-sky-400 shrink-0" />
           <span>视频简介</span>
         </span>
-        <span className="flex items-center gap-1 text-[10px] text-sky-500 hover:text-sky-400 font-medium">
+        <span className="flex items-center gap-1 text-[11px] text-sky-500 hover:text-sky-400 font-medium">
           {isExpanded ? '收起' : '展开'}
           {isExpanded ? (
             <ChevronUp className="w-3 h-3" />
@@ -77,7 +77,7 @@ export const VideoDescriptionCard: React.FC<VideoDescriptionCardProps> = ({
       {!isExpanded && firstLine && (
         <p
           onClick={() => setIsExpanded(true)}
-          className="text-[11px] opacity-75 truncate mt-1 cursor-pointer select-none"
+          className="text-xs opacity-75 truncate mt-1 cursor-pointer select-none"
         >
           {firstLine}
         </p>
@@ -85,7 +85,7 @@ export const VideoDescriptionCard: React.FC<VideoDescriptionCardProps> = ({
 
       {isExpanded && (
         <div
-          className={`mt-2 pt-2 border-t text-[11px] whitespace-pre-wrap break-words leading-relaxed select-text ${
+          className={`mt-2 pt-2 border-t text-[13px] whitespace-pre-wrap break-words leading-relaxed select-text ${
             isDark ? 'border-slate-700/50 opacity-90' : 'border-slate-200 opacity-90'
           }`}
         >

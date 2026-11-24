@@ -58,7 +58,7 @@ export const ToggleSwitch: React.FC<ToggleSwitchProps> = ({
               {label}
             </span>
             {badge && (
-              <span className="px-1.5 py-0.2 rounded font-mono text-[9px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+              <span className="px-1.5 py-0.2 rounded font-mono text-[10px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
                 {badge}
               </span>
             )}

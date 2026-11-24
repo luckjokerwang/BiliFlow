@@ -429,12 +429,12 @@ export const ProviderConfigTab: React.FC<ProviderConfigTabProps> = ({
                     >
                       <span>{m}</span>
                       {isPrimary && (
-                        <span className="text-[9px] bg-white/20 px-1 py-0.2 rounded font-bold">
+                        <span className="text-[10px] bg-white/20 px-1 py-0.2 rounded font-bold">
                           主用
                         </span>
                       )}
                       {isFallback && !isPrimary && (
-                        <span className="text-[9px] bg-amber-500/20 text-amber-400 px-1 py-0.2 rounded font-bold">
+                        <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1 py-0.2 rounded font-bold">
                           兜底
                         </span>
                       )}

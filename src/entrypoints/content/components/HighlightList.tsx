@@ -54,7 +54,7 @@ export const HighlightList: React.FC<HighlightListProps> = ({
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 px-0.5 select-none">
+      <div className="flex items-center justify-between text-xs font-mono text-slate-400 px-0.5 select-none">
         <span>
           {chapterSource === 'official'
             ? 'UP 主章节'

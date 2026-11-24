@@ -112,13 +112,13 @@ export const TimelineCardOverlay: React.FC<TimelineCardOverlayProps> = ({
         <div className="bg-slate-900/95 text-slate-100 border border-slate-700/80 shadow-2xl backdrop-blur-md px-3 py-2 rounded-xl text-xs flex flex-col gap-1 w-[280px]">
           {/* Header: Badge + Title + Time Range */}
           <div className="flex items-center gap-2">
-            <span className="shrink-0 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
+            <span className="shrink-0 px-1.5 py-0.5 rounded font-mono text-[11px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/30">
               {hoveredSegment.index === 0 ? '引言' : `亮点 ${hoveredSegment.index}`}
             </span>
             <span className="font-semibold text-white truncate flex-1 text-xs">
               {hoveredSegment.title}
             </span>
-            <span className="shrink-0 inline-flex items-center gap-1 font-mono text-[10px] text-sky-300 bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-800/40">
+            <span className="shrink-0 inline-flex items-center gap-1 font-mono text-[11px] text-sky-300 bg-sky-950/60 px-1.5 py-0.5 rounded border border-sky-800/40">
               <Clock className="w-2.5 h-2.5" />
               {hoveredSegment.timeRangeStr}
             </span>
@@ -126,7 +126,7 @@ export const TimelineCardOverlay: React.FC<TimelineCardOverlayProps> = ({
 
           {/* Body: Key Point Snippet */}
           {hoveredSegment.keyPoint && (
-            <p className="text-[11px] text-slate-300/90 leading-relaxed pt-1 border-t border-slate-800/80">
+            <p className="text-[12px] text-slate-300/90 leading-relaxed pt-1 border-t border-slate-800/80">
               {hoveredSegment.keyPoint}
             </p>
           )}

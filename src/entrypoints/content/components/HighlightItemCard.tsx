@@ -231,14 +231,14 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
         <div className="flex items-center justify-between gap-1">
           <div className="flex items-center gap-2 min-w-0">
             <span
-              className={`font-semibold text-xs truncate ${
+              className={`font-semibold text-[13px] truncate ${
                 isDark ? 'text-white' : 'text-slate-900'
               }`}
             >
               {item.title}
             </span>
             <span
-              className={`inline-flex items-center gap-1 font-mono text-[10px] px-1.5 py-0.2 rounded border shrink-0 ${
+              className={`inline-flex items-center gap-1 font-mono text-[11px] px-1.5 py-0.2 rounded border shrink-0 ${
                 isDark
                   ? 'text-sky-300 bg-sky-950/60 border-sky-800/40'
                   : 'text-sky-700 bg-sky-50 border-sky-200'
@@ -258,7 +258,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                 e.stopPropagation();
                 setIsEditingThought((prev) => !prev);
               }}
-              className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+              className={`inline-flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded transition-all cursor-pointer ${
                 annotation
                   ? isDark
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
@@ -278,7 +278,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
               <button
                 type="button"
                 onClick={(e) => onToggleExpand(item.id, e)}
-                className={`inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded transition-all cursor-pointer ${
+                className={`inline-flex items-center gap-0.5 text-[11px] font-medium px-1.5 py-0.5 rounded transition-all cursor-pointer ${
                   isExpanded
                     ? isDark
                       ? 'bg-sky-500/20 text-sky-400 hover:bg-sky-500/30'
@@ -304,7 +304,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
         {/* AI Key Point */}
         {item.keyPoint && (
           <p
-            className={`text-[11px] mt-1 leading-snug ${
+            className={`text-[13px] mt-1 leading-relaxed ${
               isDark ? 'text-slate-300' : 'text-slate-600'
             }`}
           >
@@ -319,7 +319,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
               e.stopPropagation();
               setIsEditingThought(true);
             }}
-            className={`mt-1.5 p-1.5 rounded-lg text-[10px] border leading-relaxed flex items-start justify-between gap-1.5 transition-colors ${
+            className={`mt-1.5 p-1.5 rounded-lg text-[11px] border leading-relaxed flex items-start justify-between gap-1.5 transition-colors ${
               isDark
                 ? 'bg-amber-950/20 border-amber-800/30 text-amber-200/90 hover:border-amber-700/50'
                 : 'bg-amber-50/80 border-amber-200 text-amber-900 hover:border-amber-300'
@@ -353,7 +353,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                     setThoughtType(chip.type);
                     persistThought(chip.type, thoughtContent);
                   }}
-                  className={`text-[10px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
+                  className={`text-[11px] px-1.5 py-0.5 rounded border transition-colors cursor-pointer ${
                     thoughtType === chip.type
                       ? 'bg-sky-500 text-white border-sky-500 font-semibold'
                       : isDark
@@ -376,7 +376,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
               }}
               placeholder="写下你对本章节的启发、存疑或实践灵感..."
               rows={2}
-              className={`w-full text-[11px] p-1.5 rounded border resize-none focus:outline-none focus:ring-1 focus:ring-sky-500 ${
+              className={`w-full text-xs p-1.5 rounded border resize-none focus:outline-none focus:ring-1 focus:ring-sky-500 ${
                 isDark
                   ? 'bg-slate-800 border-slate-700 text-slate-100 placeholder-slate-500'
                   : 'bg-slate-50 border-slate-200 text-slate-900 placeholder-slate-400'
@@ -385,7 +385,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
 
             {saveState !== 'idle' && (
               <div
-                className={`text-[10px] ${
+                className={`text-[11px] ${
                   saveState === 'error'
                     ? 'text-rose-400'
                     : isDark
@@ -408,7 +408,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                   <button
                     type="button"
                     onClick={handleDeleteThought}
-                    className="inline-flex items-center gap-0.5 text-[10px] text-rose-400 hover:text-rose-500 cursor-pointer px-1 py-0.5"
+                    className="inline-flex items-center gap-0.5 text-[11px] text-rose-400 hover:text-rose-500 cursor-pointer px-1 py-0.5"
                     title="删除此感悟"
                   >
                     <Trash2 className="w-2.5 h-2.5" />
@@ -418,7 +418,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                 <button
                   type="button"
                   onClick={() => setIsEditingThought(false)}
-                  className={`text-[10px] px-1.5 py-0.5 rounded cursor-pointer ${
+                  className={`text-[11px] px-1.5 py-0.5 rounded cursor-pointer ${
                     isDark
                       ? 'text-slate-400 hover:text-slate-200'
                       : 'text-slate-500 hover:text-slate-800'
@@ -433,7 +433,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                 <button
                   type="button"
                   onClick={handleSaveThought}
-                  className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded bg-slate-700 text-white hover:bg-slate-600 cursor-pointer"
+                  className="inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded bg-slate-700 text-white hover:bg-slate-600 cursor-pointer"
                   title="完成编辑"
                 >
                   <Check className="w-2.5 h-2.5" />
@@ -445,7 +445,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                   type="button"
                   onClick={(e) => handleSyncToNote(false, e)}
                   disabled={syncState === 'loading'}
-                  className={`inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-80 ${
+                  className={`inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-80 ${
                     syncState === 'success' && syncTarget === 'text'
                       ? 'bg-emerald-600 text-white'
                       : syncState === 'queued' && syncTarget === 'text'
@@ -491,7 +491,7 @@ export const HighlightItemCard = React.memo<HighlightItemCardProps>(({
                   type="button"
                   onClick={(e) => handleSyncToNote(true, e)}
                   disabled={syncState === 'loading'}
-                  className={`inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-80 ${
+                  className={`inline-flex items-center gap-0.5 text-[11px] px-2 py-0.5 rounded transition-all cursor-pointer disabled:opacity-80 ${
                     syncState === 'success' && syncTarget === 'screenshot'
                       ? 'bg-emerald-600 text-white'
                       : syncState === 'queued' && syncTarget === 'screenshot'

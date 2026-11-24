@@ -63,7 +63,7 @@ const TranscriptRow = React.memo<TranscriptRowProps>(
         }`}
       >
         <span
-          className={`font-mono text-[10px] px-1.5 py-0.5 rounded border shrink-0 ${
+          className={`font-mono text-[11px] px-1.5 py-0.5 rounded border shrink-0 ${
             isActive
               ? 'bg-sky-500 text-white border-transparent font-bold'
               : isDark
@@ -73,7 +73,9 @@ const TranscriptRow = React.memo<TranscriptRowProps>(
         >
           {timestampStr}
         </span>
-        <p className="flex-1 min-w-0 text-[11px] leading-relaxed break-words">
+        <p className={`flex-1 min-w-0 leading-relaxed break-words ${
+          isActive ? 'text-[14px] font-semibold' : 'text-[13px]'
+        }`}>
           {content}
         </p>
         {isActive && (
@@ -163,12 +165,12 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
     <div className="flex-1 min-h-0 flex flex-col items-center justify-center gap-2 py-10 text-center">
       {icon}
       <p className="text-xs font-medium">{title}</p>
-      <p className="text-[11px] opacity-75 max-w-[260px]">{description}</p>
+      <p className="text-xs opacity-75 max-w-[260px]">{description}</p>
       {showRetry && (
         <button
           type="button"
           onClick={onRetry}
-          className="mt-1 px-2.5 py-1 rounded-lg bg-sky-500 text-white text-[11px] font-semibold hover:bg-sky-400 cursor-pointer"
+          className="mt-1 px-2.5 py-1 rounded-lg bg-sky-500 text-white text-xs font-semibold hover:bg-sky-400 cursor-pointer"
         >
           重试
         </button>
@@ -195,9 +197,9 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
             onChange={(e) => setQuery(e.target.value)}
             onFocus={onManualInteraction}
             placeholder="搜索全文字幕关键词..."
-            className="flex-1 min-w-0 bg-transparent text-[11px] outline-none placeholder:text-slate-400"
+            className="flex-1 min-w-0 bg-transparent text-xs outline-none placeholder:text-slate-400"
           />
-          <span className="shrink-0 font-mono text-[10px] text-slate-400">
+          <span className="shrink-0 font-mono text-[11px] text-slate-400">
             {matches.length}/{items.length}
           </span>
         </div>
@@ -232,7 +234,7 @@ export const TranscriptStream: React.FC<TranscriptStreamProps> = ({
           className="flex-1 min-h-0 mt-2 pr-1 space-y-1 overflow-y-auto"
         >
           {matches.length === 0 ? (
-            <p className="py-8 text-center text-[11px] text-slate-400">
+            <p className="py-8 text-center text-xs text-slate-400">
               没有匹配 “{query.trim()}” 的字幕句
             </p>
           ) : (

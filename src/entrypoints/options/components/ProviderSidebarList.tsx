@@ -68,7 +68,7 @@ export const ProviderSidebarList: React.FC<ProviderSidebarListProps> = ({
                   <div className="font-medium truncate flex items-center gap-1.5">
                     {displayName}
                     {isActive && (
-                      <span className="text-[9px] font-mono px-1 rounded bg-emerald-500/20 text-emerald-500 font-bold">
+                      <span className="text-[10px] font-mono px-1 rounded bg-emerald-500/20 text-emerald-500 font-bold">
                         当前
                       </span>
                     )}

@@ -584,12 +584,12 @@ export const HudOverlay: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => window.location.reload()}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500 text-white text-[11px] font-semibold transition-all hover:bg-sky-400 cursor-pointer mt-1"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-sky-500 text-white text-xs font-semibold transition-all hover:bg-sky-400 cursor-pointer mt-1"
                       >
                         <RotateCcw className="w-3 h-3" /> 立即按 F5 刷新网页
                       </button>
                     ) : error.includes('字幕') ? (
-                      <div className="pt-1 text-[11px] text-slate-400 flex items-center gap-1">
+                      <div className="pt-1 text-xs text-slate-400 flex items-center gap-1">
                         <FileText className="w-3 h-3 text-slate-400" />
                         <span>提示：该视频没有外挂字幕/AI字幕，仅有UP压制的画面硬字幕</span>
                       </div>
@@ -597,7 +597,7 @@ export const HudOverlay: React.FC = () => {
                       <button
                         type="button"
                         onClick={handleOpenOptions}
-                        className="inline-flex items-center gap-1 text-[11px] text-sky-500 hover:underline cursor-pointer pt-0.5 font-semibold"
+                        className="inline-flex items-center gap-1 text-xs text-sky-500 hover:underline cursor-pointer pt-0.5 font-semibold"
                       >
                         <Settings className="w-3.5 h-3.5" /> 前往设置中心配置厂商与 API Key
                       </button>
@@ -626,7 +626,7 @@ export const HudOverlay: React.FC = () => {
                 <>
                   {summary.oneSentenceSummary && (
                     <div
-                      className={`p-3 rounded-xl border text-xs leading-relaxed select-text ${
+                      className={`p-3 rounded-xl border text-[13px] leading-relaxed select-text ${
                         isDark
                           ? 'bg-slate-800/50 border-slate-700/50 text-slate-200'
                           : 'bg-slate-50 border-slate-200 text-slate-700'
@@ -758,7 +758,7 @@ export const HudOverlay: React.FC = () => {
           </span>
           <span className="text-xs font-bold">心流</span>
           <kbd
-            className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
               isDark
                 ? 'bg-slate-800/80 text-slate-400 border-slate-700/60'
                 : 'bg-slate-100 text-slate-500 border-slate-200'

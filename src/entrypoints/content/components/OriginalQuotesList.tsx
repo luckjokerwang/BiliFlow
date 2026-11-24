@@ -47,17 +47,17 @@ export const OriginalQuotesList: React.FC<OriginalQuotesListProps> = ({
       onClick={(e) => e.stopPropagation()}
     >
       {/* Header Info */}
-      <div className="flex items-center justify-between text-[10px] font-mono text-slate-400 pb-1 border-b border-slate-700/30">
+      <div className="flex items-center justify-between text-[11px] font-mono text-slate-400 pb-1 border-b border-slate-700/30">
         <span className="flex items-center gap-1 text-sky-400 font-medium">
           <Quote className="w-2.5 h-2.5" />
           <span>原文字幕依据 ({quotes.length} 段)</span>
           {activeQuoteIndex >= 0 && (
-            <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 font-normal">
+            <span className="text-[11px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 font-normal">
               播至 {activeQuoteIndex + 1}/{quotes.length}
             </span>
           )}
         </span>
-        <span className="text-[9px] text-slate-400">点击任意句可精准跳转</span>
+        <span className="text-[11px] text-slate-400">点击任意句可精准跳转</span>
       </div>
 
       {/* Quotes Scrollable Container with centered active positioning */}
@@ -91,7 +91,7 @@ export const OriginalQuotesList: React.FC<OriginalQuotesListProps> = ({
               }`}
             >
               <span
-                className={`font-mono text-[9px] px-1 py-0.2 rounded shrink-0 border mt-0.5 transition-colors ${
+                className={`font-mono text-[11px] px-1.5 py-0.5 rounded shrink-0 border mt-0.5 transition-colors ${
                   isQuoteActive
                     ? 'bg-sky-500 text-white border-transparent font-bold shadow-xs'
                     : isDark
@@ -101,7 +101,7 @@ export const OriginalQuotesList: React.FC<OriginalQuotesListProps> = ({
               >
                 {quote.timestampStr}
               </span>
-              <p className="flex-1 leading-snug">{quote.content}</p>
+              <p className="flex-1 text-[11px] leading-relaxed">{quote.content}</p>
               {isQuoteActive && (
                 <span className="shrink-0 text-sky-400 animate-pulse mt-0.5" title="正在播放该句">
                   <Volume2 className="w-3.5 h-3.5" />

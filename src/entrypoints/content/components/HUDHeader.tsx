@@ -86,7 +86,7 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
                 HUD
               </span>
               <kbd
-                className={`text-[9px] font-mono font-medium px-1.5 py-0.5 rounded border transition-colors ${
+                className={`text-[10px] font-mono font-medium px-1.5 py-0.5 rounded border transition-colors ${
                   isDark
                     ? 'bg-slate-800/80 text-slate-400 border-slate-700/60'
                     : 'bg-slate-100 text-slate-500 border-slate-200'
@@ -97,7 +97,7 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
               </kbd>
               {categoryLabel && (
                 <span
-                  className={`text-[10px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
+                  className={`text-[11px] px-1.5 py-0.5 rounded-full border whitespace-nowrap ${
                     isDark
                       ? 'text-sky-300 bg-sky-500/10 border-sky-500/20'
                       : 'text-sky-600 bg-sky-50 border-sky-200'
@@ -117,7 +117,7 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
             <button
               type="button"
               onClick={onRetryNoteSync}
-              className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg text-[10px] font-semibold bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 cursor-pointer"
+              className="inline-flex items-center gap-1 px-1.5 py-1 rounded-lg text-[11px] font-semibold bg-amber-500/20 text-amber-500 hover:bg-amber-500/30 cursor-pointer"
               title="重试将本地待同步笔记写入 B站官方笔记"
               aria-label={`待同步 ${pendingNoteSyncCount} 条，点击重试`}
             >
@@ -213,7 +213,7 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
       {isFallbackUsed && (
         <div className="px-3.5 pb-1.5 -mt-0.5">
           <span
-            className="inline-flex items-center gap-1 text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold whitespace-nowrap"
+            className="inline-flex items-center gap-1 text-[10px] font-mono px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-semibold whitespace-nowrap"
             title={`容灾兜底生效中 (${usedModel || '备用模型'})`}
           >
             <ShieldCheck className="w-2.5 h-2.5 shrink-0" /> 容灾兜底 · {usedModel || '备用模型'}
@@ -239,7 +239,7 @@ export const HUDHeader = React.memo<HUDHeaderProps>(({
               aria-pressed={isActive}
               aria-keyshortcuts={mode === 'summary' ? '[' : ']'}
               title={`${label} · 按 ${displayShortcut('prevView')} / ${displayShortcut('nextView')} 切换视图`}
-              className={`flex-1 min-w-0 px-1.5 py-1.5 rounded-lg text-[10px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+              className={`flex-1 min-w-0 px-1.5 py-1.5 rounded-lg text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
                 isActive
                   ? 'bg-sky-500 text-white'
                   : isDark
