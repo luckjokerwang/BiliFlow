@@ -88,6 +88,14 @@ const MAP_SYSTEM_PROMPT = `
 4. 只输出 JSON，不输出 Markdown 或解释文字。
 `.trim();
 
+function cleanDescriptionForPrompt(raw?: string): string {
+  if (!raw) return '';
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+  const cleaned = trimmed.replace(/\r\n/g, '\n').replace(/\n{3,}/g, '\n\n');
+  return cleaned.slice(0, 1000).trim();
+}
+
 function buildPreflightPrompt(metadata?: VideoPreflightMetadata): string {
   if (!metadata) return '';
   const blocks: string[] = [];
@@ -102,6 +110,11 @@ function buildPreflightPrompt(metadata?: VideoPreflightMetadata): string {
         )
         .join('\n')}`
     );
+  }
+
+  const cleanedDescription = cleanDescriptionForPrompt(metadata.description);
+  if (cleanedDescription) {
+    blocks.push(`【视频简介 / UP主背景说明】\n${cleanedDescription}`);
   }
 
   const descriptionPoints = metadata.descriptionTimestamps || [];
@@ -184,6 +197,7 @@ function filterPreflightForWindow(
   );
 
   if (chapters.length > 0) result.officialChapters = chapters;
+  if (metadata.description) result.description = metadata.description;
   if (descriptionTimestamps.length > 0) {
     result.descriptionTimestamps = descriptionTimestamps;
   }
@@ -580,6 +594,7 @@ export interface GenerateVideoSummaryParams {
   subtitles: BiliRawSubtitleItem[];
   durationSec?: number;
   preflight?: VideoPreflightMetadata;
+  description?: string;
   provider: ProviderConfig;
   model?: string;
   fallbackProvider?: ProviderConfig;
@@ -597,7 +612,8 @@ export async function generateVideoSummary(
     title,
     subtitles,
     durationSec,
-    preflight,
+    preflight: rawPreflight,
+    description,
     provider,
     model,
     fallbackProvider,
@@ -605,6 +621,11 @@ export async function generateVideoSummary(
     candidateProviders,
     enableFallback = true,
   } = params;
+
+  let preflight = rawPreflight;
+  if (description && (!preflight || !preflight.description)) {
+    preflight = { ...preflight, description };
+  }
 
   if (!provider.apiKey) {
     throw new Error(`厂商【${provider.name}】未配置 API Key，请打开设置中心填入 Key。`);

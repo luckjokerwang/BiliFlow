@@ -1,5 +1,13 @@
-import React from 'react';
-import { AlertCircle, Loader2, MessageSquare, ThumbsUp, Zap } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  AlertCircle,
+  ChevronDown,
+  ChevronUp,
+  Loader2,
+  MessageSquare,
+  ThumbsUp,
+  Zap,
+} from 'lucide-react';
 import { CommunityDigest } from '../../../types';
 import { formatSeconds } from '../../../utils/timeParser';
 
@@ -24,6 +32,19 @@ export const CommunityDigestView: React.FC<CommunityDigestViewProps> = ({
   onSeek,
   listRef,
 }) => {
+  const [expandedReplyIds, setExpandedReplyIds] = useState<Set<string>>(new Set());
+
+  const toggleSubReplies = (commentId: string) => {
+    setExpandedReplyIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(commentId)) {
+        next.delete(commentId);
+      } else {
+        next.add(commentId);
+      }
+      return next;
+    });
+  };
 
   if (loading && !digest) {
     return (
@@ -102,8 +123,52 @@ export const CommunityDigestView: React.FC<CommunityDigestViewProps> = ({
                   <span className="flex items-center gap-1">
                     <ThumbsUp className="w-3 h-3" /> {comment.likeCount}
                   </span>
-                  <span>回复 {comment.replyCount}</span>
+                  {comment.replyCount > 0 && comment.subReplies && comment.subReplies.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => toggleSubReplies(comment.id)}
+                      className="inline-flex items-center gap-1 hover:text-sky-400 transition-colors cursor-pointer select-none text-[10px]"
+                    >
+                      <span>
+                        共 {comment.replyCount} 条回复 ·{' '}
+                        {expandedReplyIds.has(comment.id) ? '收起' : '展开查看'}
+                      </span>
+                      {expandedReplyIds.has(comment.id) ? (
+                        <ChevronUp className="w-2.5 h-2.5" />
+                      ) : (
+                        <ChevronDown className="w-2.5 h-2.5" />
+                      )}
+                    </button>
+                  ) : (
+                    <span>回复 {comment.replyCount}</span>
+                  )}
                 </div>
+
+                {expandedReplyIds.has(comment.id) &&
+                  comment.subReplies &&
+                  comment.subReplies.length > 0 && (
+                    <div
+                      className={`mt-2 pl-2.5 ml-1 border-l-2 ${
+                        isDark
+                          ? 'border-sky-500/30 bg-black/20 text-slate-300'
+                          : 'border-sky-500/30 bg-slate-100/70 text-slate-700'
+                      } rounded-r-lg py-1.5 pr-2 space-y-2`}
+                    >
+                      {comment.subReplies.map((sub) => (
+                        <div key={sub.id} className="text-[10px] leading-tight space-y-0.5">
+                          <div className="flex items-center justify-between text-[9px] opacity-75">
+                            <span className="font-semibold">{sub.author}</span>
+                            <span className="flex items-center gap-0.5 opacity-80">
+                              <ThumbsUp className="w-2.5 h-2.5" /> {sub.likeCount}
+                            </span>
+                          </div>
+                          <p className="whitespace-pre-wrap break-words text-[10px] opacity-90 select-text">
+                            {sub.content}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
               </div>
             ))}
           </div>

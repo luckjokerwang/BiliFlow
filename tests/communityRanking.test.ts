@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  normalizeComment,
   selectFeaturedComments,
   selectFeaturedDanmaku,
 } from '../src/utils/communityRanking';
@@ -54,6 +55,36 @@ describe('selectFeaturedComments', () => {
   it('caps at 12 items', () => {
     const all = Array.from({ length: 20 }, (_, i) => rawComment(String(i)));
     expect(selectFeaturedComments(all)).toHaveLength(12);
+  });
+
+  it('extracts and sorts subReplies by likeCount descending, preserving likeCount', () => {
+    const raw = rawComment('parent', {
+      like: 10,
+      rcount: 3,
+      replies: [
+        rawComment('sub1', { like: 100, content: { message: 'sub comment 1' } }),
+        rawComment('sub2', { like: 1050, content: { message: 'sub comment god tier' } }),
+        rawComment('sub3', { like: 50, content: { message: 'sub comment 3' } }),
+        rawComment('sub-hidden', { state: 17, content: { message: 'hidden' } }),
+      ],
+    });
+    const result = normalizeComment(raw, false);
+    expect(result).not.toBeNull();
+    expect(result?.subReplies).toHaveLength(3);
+    expect(result?.subReplies?.[0].id).toBe('sub2');
+    expect(result?.subReplies?.[0].likeCount).toBe(1050);
+    expect(result?.subReplies?.[0].content).toBe('sub comment god tier');
+    expect(result?.subReplies?.[1].id).toBe('sub1');
+    expect(result?.subReplies?.[1].likeCount).toBe(100);
+    expect(result?.subReplies?.[2].id).toBe('sub3');
+    expect(result?.subReplies?.[2].likeCount).toBe(50);
+  });
+
+  it('leaves subReplies undefined when record has no replies', () => {
+    const raw = rawComment('single', { like: 5 });
+    const result = normalizeComment(raw, false);
+    expect(result).not.toBeNull();
+    expect(result?.subReplies).toBeUndefined();
   });
 });
 

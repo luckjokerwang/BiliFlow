@@ -22,7 +22,11 @@ export interface FeaturedCommentCandidate extends CommunityCommentItem {
   fromPinnedUpper: boolean;
 }
 
-export function normalizeComment(raw: unknown, fromPinnedUpper: boolean): FeaturedCommentCandidate | null {
+export function normalizeComment(
+  raw: unknown,
+  fromPinnedUpper: boolean,
+  parseSubReplies = true
+): FeaturedCommentCandidate | null {
   const record = asRecord(raw);
   if (!record) return null;
   const member = asRecord(record.member);
@@ -41,7 +45,25 @@ export function normalizeComment(raw: unknown, fromPinnedUpper: boolean): Featur
   const isUpLiked = Boolean(upAction?.like || replyControl?.is_up_liked);
   const isPinned = Boolean(replyControl?.is_up_top) || fromPinnedUpper;
 
-  return {
+  let subReplies: CommunityCommentItem[] | undefined;
+  if (parseSubReplies && Array.isArray(record.replies) && record.replies.length > 0) {
+    const subs: CommunityCommentItem[] = [];
+    for (const sub of record.replies) {
+      const subRec = asRecord(sub);
+      if (!subRec || subRec.state === 17 || subRec.invisible === true) continue;
+      const normalizedSub = normalizeComment(sub, false, false);
+      if (normalizedSub) {
+        const { raw: _raw, fromPinnedUpper: _pinned, ...subItem } = normalizedSub;
+        subs.push(subItem);
+      }
+    }
+    if (subs.length > 0) {
+      subs.sort((a, b) => b.likeCount - a.likeCount || a.publishedAt - b.publishedAt);
+      subReplies = subs;
+    }
+  }
+
+  const result: FeaturedCommentCandidate = {
     id,
     author,
     content: text,
@@ -53,6 +75,12 @@ export function normalizeComment(raw: unknown, fromPinnedUpper: boolean): Featur
     raw: record,
     fromPinnedUpper,
   };
+
+  if (subReplies && subReplies.length > 0) {
+    result.subReplies = subReplies;
+  }
+
+  return result;
 }
 
 /** Ranks comments by pinned, UP-like, likes, replies, then oldest first; caps at 12. */

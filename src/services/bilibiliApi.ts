@@ -267,6 +267,9 @@ export async function fetchVideoPreflightMetadata(params: {
   if (!bvid || !cid) return {};
 
   const result: VideoPreflightMetadata = {};
+  if (description && description.trim()) {
+    result.description = description.trim();
+  }
   const descriptionTimestamps = extractDescriptionTimestamps(
     description || '',
     durationSec

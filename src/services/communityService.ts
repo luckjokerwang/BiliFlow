@@ -45,36 +45,72 @@ function isHiddenReply(reply: unknown): boolean {
   return false;
 }
 
-async function fetchCommentSort(
+export async function fetchCommentSort(
   bvid: string,
   aid: string,
-  sort: 1 | 2
+  sort: 1 | 2,
+  pages: number[] = [1, 2, 3]
 ): Promise<CommentSortResult> {
-  const url = buildBiliUrl('/x/v2/reply', {
-    type: '1',
-    oid: aid,
-    sort: String(sort),
-    ps: '20',
-    pn: '1',
-    nohot: '1',
-  });
-  const data = await fetchJsonWithTimeout<UnknownRecord>(url, makeHeaders(bvid));
-  if (data.code !== 0) throw new Error(`评论接口返回 ${data.code}`);
-  const responseData = asRecord(data.data) || {};
-  const page = asRecord(responseData.page);
-  const total = page && typeof page.count === 'number' && Number.isFinite(page.count)
-    ? page.count
-    : null;
-  const replies = Array.isArray(responseData.replies)
-    ? responseData.replies.filter((reply) => !isHiddenReply(reply))
-    : [];
-  const upper = asRecord(responseData.upper);
-  const upperTop = upper && Array.isArray(upper.top)
-    ? upper.top.filter((reply) => !isHiddenReply(reply))
-    : [];
-  const topReplies = Array.isArray(responseData.top_replies)
-    ? responseData.top_replies.filter((reply) => !isHiddenReply(reply))
-    : [];
+  const fetchSinglePage = async (pn: number) => {
+    const url = buildBiliUrl('/x/v2/reply', {
+      type: '1',
+      oid: aid,
+      sort: String(sort),
+      ps: '20',
+      pn: String(pn),
+    });
+    const data = await fetchJsonWithTimeout<UnknownRecord>(url, makeHeaders(bvid));
+    if (data.code !== 0) throw new Error(`评论接口返回 ${data.code}`);
+    return asRecord(data.data) || {};
+  };
+
+  const results = await Promise.allSettled(pages.map((pn) => fetchSinglePage(pn)));
+  const successfulData = results
+    .filter((r): r is PromiseFulfilledResult<UnknownRecord> => r.status === 'fulfilled')
+    .map((r) => r.value);
+
+  if (successfulData.length === 0) {
+    const firstRejected = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+    throw firstRejected ? firstRejected.reason : new Error('评论接口请求失败');
+  }
+
+  let total: number | null = null;
+  const seenRpids = new Set<string>();
+  const replies: unknown[] = [];
+  const upperTop: unknown[] = [];
+  const topReplies: unknown[] = [];
+
+  const addUnique = (targetList: unknown[], item: unknown) => {
+    if (isHiddenReply(item)) return;
+    const rec = asRecord(item);
+    const rpid = rec ? String(rec.rpid ?? '') : '';
+    if (rpid) {
+      if (seenRpids.has(rpid)) return;
+      seenRpids.add(rpid);
+    }
+    targetList.push(item);
+  };
+
+  for (const pageData of successfulData) {
+    const page = asRecord(pageData.page);
+    if (total === null && page && typeof page.count === 'number' && Number.isFinite(page.count)) {
+      total = page.count;
+    }
+
+    const upper = asRecord(pageData.upper);
+    if (upper && Array.isArray(upper.top)) {
+      upper.top.forEach((item) => addUnique(upperTop, item));
+    }
+
+    if (Array.isArray(pageData.top_replies)) {
+      pageData.top_replies.forEach((item) => addUnique(topReplies, item));
+    }
+
+    if (Array.isArray(pageData.replies)) {
+      pageData.replies.forEach((item) => addUnique(replies, item));
+    }
+  }
+
   return { replies, upperTop, topReplies, total };
 }
 

@@ -28,6 +28,7 @@ import { HUDHeader } from './components/HUDHeader';
 import { HighlightList } from './components/HighlightList';
 import { ManualTriggerPanel } from './components/ManualTriggerPanel';
 import { HUDToast } from './components/HUDToast';
+import { VideoDescriptionCard } from './components/VideoDescriptionCard';
 import { TranscriptStream } from './components/TranscriptStream';
 import { SummaryArtifacts } from './components/SummaryArtifacts';
 import { CommunityDigestView } from './components/CommunityDigestView';
@@ -627,6 +628,11 @@ export const HudOverlay: React.FC = () => {
                       {summary.oneSentenceSummary}
                     </div>
                   )}
+
+                  <VideoDescriptionCard
+                    isDark={isDark}
+                    description={videoInfo?.description}
+                  />
 
                   <SummaryArtifacts
                     isDark={isDark}
