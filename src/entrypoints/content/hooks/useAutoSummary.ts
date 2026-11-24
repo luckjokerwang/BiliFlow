@@ -32,6 +32,7 @@ export interface UseAutoSummaryProps {
 export interface UseAutoSummaryReturn {
   summary: VideoSummaryResult | null;
   loading: boolean;
+  loadingMessage: string | null;
   error: string | null;
   isManualMode: boolean;
   manualReason: AutoSummarySkipReason | null;
@@ -51,6 +52,7 @@ export function useAutoSummary({
 }: UseAutoSummaryProps): UseAutoSummaryReturn {
   const [summary, setSummary] = useState<VideoSummaryResult | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isManualMode, setIsManualMode] = useState<boolean>(false);
   const [manualReason, setManualReason] = useState<AutoSummarySkipReason | null>(null);
@@ -250,6 +252,7 @@ export function useAutoSummary({
         setManualReason(null);
         setIsManualMode(false);
         setLoading(true);
+        setLoadingMessage(null);
         setSummary(null);
 
         const transcriptItems = await awaitCurrentTranscript(
@@ -331,6 +334,7 @@ export function useAutoSummary({
           videoEpoch === videoEpochRef.current
         ) {
           setLoading(false);
+          setLoadingMessage(null);
         }
       }
     },
@@ -370,6 +374,7 @@ export function useAutoSummary({
       setSummary(null);
       setError(null);
       setLoading(false);
+      setLoadingMessage(null);
       setIsManualMode(false);
       setManualReason(null);
       setVideoInfo(null);
@@ -451,6 +456,22 @@ export function useAutoSummary({
     };
   }, [loadSummaryForCurrentVideo, coordinator, settingsReady]);
 
+  useEffect(() => {
+    const handleProgress = (msg: any) => {
+      if (msg?.type === 'SUMMARY_PROGRESS' && msg?.payload?.message) {
+        setLoadingMessage(msg.payload.message);
+      }
+    };
+    try {
+      browser.runtime.onMessage.addListener(handleProgress);
+    } catch {}
+    return () => {
+      try {
+        browser.runtime.onMessage.removeListener(handleProgress);
+      } catch {}
+    };
+  }, []);
+
   const triggerSummary = useCallback(
     async (forceRefresh = false) => {
       await loadSummaryForCurrentVideo(forceRefresh, true);
@@ -472,6 +493,7 @@ export function useAutoSummary({
   return {
     summary,
     loading,
+    loadingMessage,
     error,
     isManualMode,
     manualReason,

@@ -72,7 +72,10 @@ export default defineBackground(() => {
     }
   });
 
-  async function handleMessage(message: ExtensionMessage): Promise<ExtensionResponse> {
+  async function handleMessage(
+    message: ExtensionMessage,
+    sender?: any
+  ): Promise<ExtensionResponse> {
     try {
       switch (message.type) {
         case 'RESOLVE_VIDEO_INFO': {
@@ -203,6 +206,14 @@ export default defineBackground(() => {
             fallbackModel: activeProvider.fallbackModel,
             candidateProviders,
             enableFallback: settings.enableFallback ?? true,
+            onProgress: (event) => {
+              if (sender?.tab?.id) {
+                browser.tabs.sendMessage(sender.tab.id, {
+                  type: 'SUMMARY_PROGRESS',
+                  payload: event,
+                }).catch(() => {});
+              }
+            },
           });
 
           // Cache summary in local storage with LRU eviction
@@ -283,10 +294,10 @@ export default defineBackground(() => {
   browser.runtime.onMessage.addListener(
     (
       message: any,
-      _sender,
+      sender,
       sendResponse: (response: any) => void
     ): true => {
-      handleMessage(message as ExtensionMessage).then((res) => {
+      handleMessage(message as ExtensionMessage, sender).then((res) => {
         try {
           if (typeof sendResponse === 'function') sendResponse(res);
         } catch (_) {}

@@ -157,7 +157,7 @@ export function formatTranscriptForPrompt(
  */
 export function partitionSubtitlesIntoWindows(
   items: BiliRawSubtitleItem[],
-  windowSec = 600
+  windowSec = 1200
 ): TranscriptWindow[] {
   if (
     !Array.isArray(items) ||

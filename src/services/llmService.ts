@@ -68,7 +68,7 @@ const SUMMARY_SYSTEM_PROMPT = `
 `.trim();
 
 const MAP_SYSTEM_PROMPT = `
-你是长视频字幕的局部 Map 阶段分析器。只处理当前 10 分钟窗口，提炼局部事实与逐字金句候选，不要输出全片总结。
+你是长视频字幕的局部 Map 阶段分析器。只处理当前时间窗口，提炼局部事实与逐字金句候选，不要输出全片总结。
 
 请严格输出 JSON 格式（不要有前置或后置的多余客套话），格式如下：
 {
@@ -420,6 +420,73 @@ interface LlmRequestError extends Error {
   isFatal?: boolean;
 }
 
+export const MAP_REDUCE_WINDOW_SEC = 1200; // 20 minutes per window (up from 600s / 10min)
+export const MAP_REDUCE_MIN_DURATION_SEC = 2400; // 40 minutes minimum duration threshold (up from 1200s / 20min)
+export const MAP_REDUCE_CHAR_THRESHOLD = 24000; // 24k chars single-shot prompt budget
+export const MAP_CONCURRENCY_LIMIT = 3; // Maximum concurrent LLM requests during Map phase
+
+export interface SummaryProgressEvent {
+  stage: 'map' | 'reduce';
+  current?: number;
+  total?: number;
+  message: string;
+}
+
+export function shouldTriggerMapReduce(params: {
+  effectiveDurationSec: number;
+  totalSubtitleChars: number;
+}): boolean {
+  const { effectiveDurationSec, totalSubtitleChars } = params;
+  if (totalSubtitleChars > MAP_REDUCE_CHAR_THRESHOLD) {
+    return true;
+  }
+  if (effectiveDurationSec > MAP_REDUCE_MIN_DURATION_SEC) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Concurrently executes asynchronous tasks with a maximum concurrency limit.
+ * Preserves task order in the returned results array.
+ * Immediately cancels remaining / in-flight tasks upon fatal error via AbortSignal.
+ */
+export async function runConcurrentTasks<T, R>(
+  items: T[],
+  concurrency: number,
+  taskFn: (item: T, index: number, signal: AbortSignal) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const limit = Math.max(1, Math.min(concurrency, items.length));
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  let firstError: unknown = null;
+  const abortController = new AbortController();
+
+  const workers = Array.from({ length: limit }, async () => {
+    while (nextIndex < items.length) {
+      if (firstError || abortController.signal.aborted) break;
+      const index = nextIndex++;
+      try {
+        const res = await taskFn(items[index], index, abortController.signal);
+        results[index] = res;
+      } catch (err) {
+        if (!firstError) {
+          firstError = err;
+          abortController.abort();
+        }
+        break;
+      }
+    }
+  });
+
+  await Promise.all(workers);
+  if (firstError) {
+    throw firstError;
+  }
+  return results;
+}
+
 async function executeSingleChatCompletion(params: {
   endpoint: string;
   apiKey: string;
@@ -427,6 +494,7 @@ async function executeSingleChatCompletion(params: {
   systemPrompt: string;
   userPrompt: string;
   maxRetries?: number;
+  signal?: AbortSignal;
 }): Promise<string> {
   const {
     endpoint,
@@ -435,14 +503,27 @@ async function executeSingleChatCompletion(params: {
     systemPrompt,
     userPrompt,
     maxRetries = 2,
+    signal,
   } = params;
 
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    if (signal?.aborted) {
+      throw new Error('请求已取消');
+    }
+
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 45000);
+      const onExternalAbort = () => controller.abort();
+      if (signal) {
+        if (signal.aborted) {
+          controller.abort();
+        } else {
+          signal.addEventListener('abort', onExternalAbort, { once: true });
+        }
+      }
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -460,7 +541,12 @@ async function executeSingleChatCompletion(params: {
           response_format: { type: 'json_object' },
         }),
         signal: controller.signal,
-      }).finally(() => clearTimeout(timeoutId));
+      }).finally(() => {
+        clearTimeout(timeoutId);
+        if (signal) {
+          signal.removeEventListener('abort', onExternalAbort);
+        }
+      });
 
       if (!response.ok) {
         const errorBody = await response.text().catch(() => '');
@@ -509,6 +595,9 @@ async function executeSingleChatCompletion(params: {
     } catch (err: unknown) {
       lastError = err;
       const requestError = err as LlmRequestError;
+      if (signal?.aborted) {
+        throw err;
+      }
       if (requestError?.isFatal || attempt >= maxRetries) {
         throw err;
       }
@@ -586,6 +675,7 @@ export interface GenerateVideoSummaryParams {
   fallbackModel?: string;
   candidateProviders?: ProviderConfig[];
   enableFallback?: boolean;
+  onProgress?: (event: SummaryProgressEvent) => void;
 }
 
 export async function generateVideoSummary(
@@ -604,6 +694,7 @@ export async function generateVideoSummary(
     fallbackModel,
     candidateProviders,
     enableFallback = true,
+    onProgress,
   } = params;
 
   if (!provider.apiKey) {
@@ -631,10 +722,20 @@ export async function generateVideoSummary(
       ? durationSec
       : 0;
   const effectiveDurationSec = Math.max(validDurationSec, subtitleEnd);
-  const useMapReduce = effectiveDurationSec > 1200;
-  const windows = useMapReduce
-    ? partitionSubtitlesIntoWindows(validSubtitles, 600)
+  const totalSubtitleChars = validSubtitles.reduce(
+    (sum, item) => sum + (item.content ? item.content.length : 0),
+    0
+  );
+
+  const useMapReduce = shouldTriggerMapReduce({
+    effectiveDurationSec,
+    totalSubtitleChars,
+  });
+  const rawWindows = useMapReduce
+    ? partitionSubtitlesIntoWindows(validSubtitles, MAP_REDUCE_WINDOW_SEC)
     : [];
+  const effectiveUseMapReduce = useMapReduce && rawWindows.length > 1;
+  const windows = effectiveUseMapReduce ? rawWindows : [];
 
   function buildShortPrompt(): string {
     const chunks = chunkSubtitles(validSubtitles, {
@@ -716,7 +817,7 @@ ${formattedTranscript}
       model: target.model,
     };
 
-    if (!useMapReduce) {
+    if (!effectiveUseMapReduce) {
       return executeSingleChatCompletion({
         ...requestBase,
         systemPrompt: SUMMARY_SYSTEM_PROMPT,
@@ -728,32 +829,50 @@ ${formattedTranscript}
       throw new Error('长视频分段未产生任何可用内容');
     }
 
-    const mapResults: MapPhaseResult[] = [];
-    const punchlineCandidates: OriginalQuote[] = [];
+    onProgress?.({
+      stage: 'map',
+      current: 0,
+      total: windows.length,
+      message: `正在并行提炼 ${windows.length} 个视频分段...`,
+    });
 
-    for (const window of windows) {
-      const rawMapOutput = await executeSingleChatCompletion({
-        ...requestBase,
-        systemPrompt: MAP_SYSTEM_PROMPT,
-        userPrompt: buildMapPrompt(title, window, preflight),
-      });
-      const parsedMap = parseMapPhaseOutput(rawMapOutput);
-      const keyPoints = parsedMap.keyPoints.filter(
-        (point) =>
-          point.timestamp >= window.startTime && point.timestamp <= window.endTime
-      );
-      const punchlineQuotes = matchPunchlineQuotesToSubtitles(
-        parsedMap.punchlineQuotes,
-        window.items
-      );
-      const mapped: MapPhaseResult = {
-        summary: parsedMap.summary,
-        keyPoints,
-        punchlineQuotes,
-      };
-      mapResults.push(mapped);
-      punchlineCandidates.push(...punchlineQuotes);
-    }
+    let completedWindows = 0;
+
+    const mapResults = await runConcurrentTasks(
+      windows,
+      MAP_CONCURRENCY_LIMIT,
+      async (window, _index, signal) => {
+        const rawMapOutput = await executeSingleChatCompletion({
+          ...requestBase,
+          systemPrompt: MAP_SYSTEM_PROMPT,
+          userPrompt: buildMapPrompt(title, window, preflight),
+          signal,
+        });
+        const parsedMap = parseMapPhaseOutput(rawMapOutput);
+        const keyPoints = parsedMap.keyPoints.filter(
+          (point) =>
+            point.timestamp >= window.startTime && point.timestamp <= window.endTime
+        );
+        const punchlineQuotes = matchPunchlineQuotesToSubtitles(
+          parsedMap.punchlineQuotes,
+          window.items
+        );
+
+        completedWindows++;
+        onProgress?.({
+          stage: 'map',
+          current: completedWindows,
+          total: windows.length,
+          message: `正在并行提炼视频分段 (${completedWindows}/${windows.length})...`,
+        });
+
+        return {
+          summary: parsedMap.summary,
+          keyPoints,
+          punchlineQuotes,
+        };
+      }
+    );
 
     const hasContent = mapResults.some(
       (result) =>
@@ -764,6 +883,16 @@ ${formattedTranscript}
     if (!hasContent) {
       throw new Error('长视频分段未产生任何可用内容');
     }
+
+    const punchlineCandidates: OriginalQuote[] = [];
+    for (const res of mapResults) {
+      punchlineCandidates.push(...res.punchlineQuotes);
+    }
+
+    onProgress?.({
+      stage: 'reduce',
+      message: '正在综合各分段生成全片总结与高光点...',
+    });
 
     return executeSingleChatCompletion({
       ...requestBase,

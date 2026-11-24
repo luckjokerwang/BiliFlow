@@ -212,6 +212,17 @@ export * from './community';
 export * from './biliNote';
 
 // ------------------------------------------
+// Summary Progress Contracts
+// ------------------------------------------
+
+export interface SummaryProgressPayload {
+  stage: 'map' | 'reduce';
+  current?: number;
+  total?: number;
+  message: string;
+}
+
+// ------------------------------------------
 // Message Passing Contracts
 // ------------------------------------------
 
@@ -219,6 +230,7 @@ export type MessageType =
   | 'RESOLVE_VIDEO_INFO'
   | 'FETCH_SUBTITLES'
   | 'GENERATE_SUMMARY'
+  | 'SUMMARY_PROGRESS'
   | 'GET_SETTINGS'
   | 'SAVE_SETTINGS'
   | 'GET_CACHED_SUMMARY'

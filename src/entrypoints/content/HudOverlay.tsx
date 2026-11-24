@@ -125,6 +125,7 @@ export const HudOverlay: React.FC = () => {
   const {
     summary,
     loading,
+    loadingMessage,
     manualReason,
 
     error,
@@ -553,7 +554,7 @@ export const HudOverlay: React.FC = () => {
                 <div className="py-10 flex flex-col items-center justify-center gap-3 text-slate-400">
                   <Loader2 className="w-7 h-7 animate-spin text-sky-500" />
                   <p className="text-xs font-medium tracking-wide">
-                    正在智能提炼视频核心亮点...
+                    {loadingMessage || '正在智能提炼视频核心亮点...'}
                   </p>
                 </div>
               )}

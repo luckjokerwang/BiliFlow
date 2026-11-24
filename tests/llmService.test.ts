@@ -1,5 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { formatBaseUrl, generateVideoSummary } from '../src/services/llmService';
+import {
+  formatBaseUrl,
+  generateVideoSummary,
+  shouldTriggerMapReduce,
+  runConcurrentTasks,
+  MAP_REDUCE_WINDOW_SEC,
+  MAP_REDUCE_MIN_DURATION_SEC,
+  MAP_REDUCE_CHAR_THRESHOLD,
+  MAP_CONCURRENCY_LIMIT,
+  SummaryProgressEvent,
+} from '../src/services/llmService';
 import { ProviderConfig } from '../src/types';
 
 describe('formatBaseUrl', () => {
@@ -540,18 +550,18 @@ describe('hierarchical Map-Reduce summary pipeline', () => {
   const originalFetch = global.fetch;
   const longSubtitles = [
     { from: 0, to: 5, content: '开场局部事实' },
-    { from: 600, to: 605, content: '中段局部事实' },
-    { from: 1200, to: 1205, content: '结尾局部事实' },
+    { from: 1200, to: 1205, content: '中段局部事实' },
+    { from: 2400, to: 2405, content: '结尾局部事实' },
   ];
   const finalContent = JSON.stringify({
     oneSentenceSummary: '覆盖全片的总结。',
     highlights: [
-      { timestamp: '20:00', title: '结尾', keyPoint: '结尾局部事实' },
+      { timestamp: '40:00', title: '结尾', keyPoint: '结尾局部事实' },
     ],
     glossary: [{ term: 'LRU', definition: '最近最少使用缓存策略' }],
     actionableTakeaways: ['打开设置配置缓存上限'],
     punchlineQuotes: [
-      { timestamp: '20:00', content: '结尾局部事实' },
+      { timestamp: '40:00', content: '结尾局部事实' },
     ],
   });
 
@@ -597,7 +607,7 @@ describe('hierarchical Map-Reduce summary pipeline', () => {
 
   function mapContent(index: number, label = '窗口'): string {
     const sources = ['开场局部事实', '中段局部事实', '结尾局部事实'];
-    const timestamps = ['00:00', '10:00', '20:00'];
+    const timestamps = ['00:00', '20:00', '40:00'];
     const source = sources[index - 1];
     return JSON.stringify({
       summary: `${label}${index}局部摘要`,
@@ -647,11 +657,11 @@ describe('hierarchical Map-Reduce summary pipeline', () => {
       cid: '1',
       title: '长视频测试',
       subtitles: longSubtitles,
-      durationSec: 1201,
+      durationSec: 2401,
       preflight: {
-        officialChapters: [{ from: 0, to: 1200, title: '官方全片' }],
-        descriptionTimestamps: [{ seconds: 600, title: '中段锚点' }],
-        danmakuHeatmapPeaks: [{ timestampSec: 1200, densityRatio: 0.9 }],
+        officialChapters: [{ from: 0, to: 2400, title: '官方全片' }],
+        descriptionTimestamps: [{ seconds: 1200, title: '中段锚点' }],
+        danmakuHeatmapPeaks: [{ timestampSec: 2400, densityRatio: 0.9 }],
       },
       provider: primaryProvider,
       enableFallback: false,
@@ -672,11 +682,11 @@ describe('hierarchical Map-Reduce summary pipeline', () => {
       { term: 'LRU', definition: '最近最少使用缓存策略' },
     ]);
     expect(result.punchlineQuotes).toEqual([
-      { timestamp: 1200, timestampStr: '20:00', content: '结尾局部事实' },
+      { timestamp: 2400, timestampStr: '40:00', content: '结尾局部事实' },
     ]);
   });
 
-  it('uses one request at exactly 1200s and still map-reduces when duration is missing', async () => {
+  it('uses one request at exactly 2400s and still map-reduces when duration is missing', async () => {
     const logs: RequestLog[] = [];
     global.fetch = vi.fn((url: unknown, init?: RequestInit) => {
       const parsed = parseRequest(init);
@@ -695,7 +705,7 @@ describe('hierarchical Map-Reduce summary pipeline', () => {
       cid: '2',
       title: '边界测试',
       subtitles: [{ from: 0, to: 100, content: '短视频字幕' }],
-      durationSec: 1200,
+      durationSec: 2400,
       provider: primaryProvider,
       enableFallback: false,
     });
@@ -746,7 +756,7 @@ describe('hierarchical Map-Reduce summary pipeline', () => {
       cid: '4',
       title: '空 Map 回退',
       subtitles: longSubtitles,
-      durationSec: 1201,
+      durationSec: 2401,
       provider: primaryProvider,
       fallbackProvider,
       enableFallback: true,
@@ -801,19 +811,138 @@ describe('hierarchical Map-Reduce summary pipeline', () => {
       cid: '5',
       title: 'Map 401 回退',
       subtitles: longSubtitles,
-      durationSec: 1201,
+      durationSec: 2401,
       provider: primaryProvider,
       fallbackProvider,
       enableFallback: true,
     });
 
-    expect(logs).toHaveLength(6);
+    expect(logs).toHaveLength(7);
     const reducePrompt = logs.at(-1)?.userPrompt || '';
     expect(reducePrompt).not.toContain('主用废弃');
     expect(reducePrompt).toContain('备用窗口1局部摘要');
     expect(reducePrompt).toContain('备用窗口3局部摘要');
     expect(result.isFallbackUsed).toBe(true);
     expect(result.usedModel).toBe('fallback-model');
+  });
+
+  it('triggers Map-Reduce dynamically when subtitle character count exceeds budget, even if video is short', async () => {
+    const logs: RequestLog[] = [];
+    global.fetch = vi.fn((url: unknown, init?: RequestInit) => {
+      const parsed = parseRequest(init);
+      logs.push({ url: String(url), ...parsed });
+      if (parsed.systemPrompt.includes('Map 阶段')) {
+        const mapIndex = logs.filter((log) =>
+          log.systemPrompt.includes('Map 阶段')
+        ).length;
+        return Promise.resolve(makeResponse(mapContent(mapIndex)));
+      }
+      return Promise.resolve(makeResponse(finalContent));
+    }) as unknown as typeof fetch;
+
+    // 31,000 characters of dense subtitles across 1000 seconds (under 2400s duration threshold)
+    const denseText = '这是一段极高信息密度的快速语流字幕，包含大量论据和关键细节。'.repeat(1000); // 31000 chars > 24000
+    const denseSubtitles = [
+      { from: 0, to: 500, content: denseText.slice(0, 16000) },
+      { from: 1300, to: 1800, content: denseText.slice(16000) },
+    ];
+
+    expect(shouldTriggerMapReduce({
+      effectiveDurationSec: 1000,
+      totalSubtitleChars: denseSubtitles[0].content.length + denseSubtitles[1].content.length,
+    })).toBe(true);
+
+    const result = await generateVideoSummary({
+      bvid: 'BV1DenseChars',
+      cid: '6',
+      title: '高密度超长字幕测试',
+      subtitles: denseSubtitles,
+      durationSec: 1000,
+      provider: primaryProvider,
+      enableFallback: false,
+    });
+
+    // 2 windows -> 2 maps + 1 reduce = 3 calls
+    expect(logs).toHaveLength(3);
+    expect(logs[0].systemPrompt).toContain('Map 阶段');
+    expect(logs[1].systemPrompt).toContain('Map 阶段');
+    expect(logs[2].systemPrompt).toContain('核心内容提炼专家');
+    expect(result.schemaVersion).toBe(2);
+  });
+
+  it('emits stage progress events for map and reduce phases', async () => {
+    const progressEvents: SummaryProgressEvent[] = [];
+    global.fetch = vi.fn((_url: unknown, init?: RequestInit) => {
+      const parsed = parseRequest(init);
+      if (parsed.systemPrompt.includes('Map 阶段')) {
+        return Promise.resolve(makeResponse(mapContent(1)));
+      }
+      return Promise.resolve(makeResponse(finalContent));
+    }) as unknown as typeof fetch;
+
+    await generateVideoSummary({
+      bvid: 'BV1ProgressTest',
+      cid: '7',
+      title: '进度反馈测试',
+      subtitles: longSubtitles,
+      durationSec: 2401,
+      provider: primaryProvider,
+      enableFallback: false,
+      onProgress: (event) => progressEvents.push(event),
+    });
+
+    expect(progressEvents.length).toBeGreaterThanOrEqual(4);
+    // Initial map event
+    expect(progressEvents[0]).toMatchObject({ stage: 'map', current: 0, total: 3 });
+    // Completed map events
+    expect(progressEvents.some((e) => e.stage === 'map' && e.current === 3)).toBe(true);
+    // Reduce event
+    expect(progressEvents.some((e) => e.stage === 'reduce')).toBe(true);
+  });
+});
+
+describe('runConcurrentTasks and threshold policies', () => {
+  it('respects concurrency limit and preserves result order', async () => {
+    const activeWorkers: number[] = [];
+    let maxConcurrencyObserved = 0;
+
+    const items = [10, 20, 30, 40, 50];
+    const results = await runConcurrentTasks(items, 2, async (item, index) => {
+      activeWorkers.push(index);
+      maxConcurrencyObserved = Math.max(maxConcurrencyObserved, activeWorkers.length);
+      await new Promise((r) => setTimeout(r, 10));
+      activeWorkers.splice(activeWorkers.indexOf(index), 1);
+      return item * 2;
+    });
+
+    expect(maxConcurrencyObserved).toBeLessThanOrEqual(2);
+    expect(results).toEqual([20, 40, 60, 80, 100]);
+  });
+
+  it('aborts sibling tasks and rejects on the first encountered error', async () => {
+    const abortedSignals: boolean[] = [];
+
+    await expect(
+      runConcurrentTasks([1, 2, 3], 2, async (item, _index, signal) => {
+        if (item === 2) {
+          throw new Error('Task 2 exploded');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        abortedSignals.push(signal.aborted);
+        return item;
+      })
+    ).rejects.toThrow('Task 2 exploded');
+  });
+
+  it('shouldTriggerMapReduce correctly distinguishes single-shot vs map-reduce boundaries', () => {
+    // Normal 30-min video with moderate subtitles -> single-shot
+    expect(shouldTriggerMapReduce({ effectiveDurationSec: 1800, totalSubtitleChars: 8000 })).toBe(false);
+    // Exactly 40-min video with normal chars -> single-shot
+    expect(shouldTriggerMapReduce({ effectiveDurationSec: 2400, totalSubtitleChars: 15000 })).toBe(false);
+    // Over 40-min video -> Map-Reduce
+    expect(shouldTriggerMapReduce({ effectiveDurationSec: 2401, totalSubtitleChars: 5000 })).toBe(true);
+    // Short video with massive subtitles exceeding budget -> Map-Reduce
+    expect(shouldTriggerMapReduce({ effectiveDurationSec: 1200, totalSubtitleChars: 25000 })).toBe(true);
   });
 });
 
