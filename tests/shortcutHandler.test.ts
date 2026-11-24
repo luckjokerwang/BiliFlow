@@ -1,5 +1,8 @@
-import { describe, it, expect } from 'vitest';
-import { matchesShortcut } from '../src/entrypoints/content/hooks/useFullscreenDetector';
+import { describe, it, expect, vi } from 'vitest';
+import {
+  matchesShortcut,
+  handleFullscreenKeyDown,
+} from '../src/entrypoints/content/hooks/useFullscreenDetector';
 import {
   resolveShortcut,
   validateShortcutBinding,
@@ -13,6 +16,9 @@ function makeKeyEvent(opts: {
   altKey?: boolean;
   shiftKey?: boolean;
   metaKey?: boolean;
+  preventDefault?: any;
+  stopPropagation?: any;
+  stopImmediatePropagation?: any;
 }): KeyboardEvent {
   return {
     key: opts.key,
@@ -21,6 +27,9 @@ function makeKeyEvent(opts: {
     altKey: opts.altKey ?? false,
     shiftKey: opts.shiftKey ?? false,
     metaKey: opts.metaKey ?? false,
+    preventDefault: opts.preventDefault ?? vi.fn(),
+    stopPropagation: opts.stopPropagation ?? vi.fn(),
+    stopImmediatePropagation: opts.stopImmediatePropagation ?? vi.fn(),
   } as unknown as KeyboardEvent;
 }
 
@@ -160,5 +169,82 @@ describe('validateShortcutBinding', () => {
     });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.reason).toBe('conflict');
+  });
+});
+
+describe('handleFullscreenKeyDown - unified arrow scrolling and highlight jumps', () => {
+  const createBaseOptions = () => ({
+    isOpen: true,
+    viewMode: 'summary' as const,
+    settings: DEFAULT_SETTINGS,
+    isShortcutHelpOpen: false,
+    hasSummary: true,
+    onScrollCurrentView: vi.fn(),
+    onPrevHighlight: vi.fn(),
+    onNextHighlight: vi.fn(),
+    onNumberKeySeek: vi.fn(),
+  });
+
+  it('scrolls current view on ArrowUp and ArrowDown in summary view without jumping highlights', () => {
+    const options = createBaseOptions();
+
+    const upEvent = makeKeyEvent({ key: 'ArrowUp' });
+    const downEvent = makeKeyEvent({ key: 'ArrowDown' });
+
+    const handledUp = handleFullscreenKeyDown(upEvent, options);
+    expect(handledUp).toBe(true);
+    expect(options.onScrollCurrentView).toHaveBeenCalledWith(-1);
+    expect(options.onPrevHighlight).not.toHaveBeenCalled();
+    expect(upEvent.preventDefault).toHaveBeenCalled();
+    expect(upEvent.stopPropagation).toHaveBeenCalled();
+    expect(upEvent.stopImmediatePropagation).toHaveBeenCalled();
+
+    const handledDown = handleFullscreenKeyDown(downEvent, options);
+    expect(handledDown).toBe(true);
+    expect(options.onScrollCurrentView).toHaveBeenCalledWith(1);
+    expect(options.onNextHighlight).not.toHaveBeenCalled();
+    expect(downEvent.preventDefault).toHaveBeenCalled();
+    expect(downEvent.stopPropagation).toHaveBeenCalled();
+    expect(downEvent.stopImmediatePropagation).toHaveBeenCalled();
+  });
+
+  it('scrolls current view on ArrowUp and ArrowDown in transcript and community views', () => {
+    for (const viewMode of ['transcript', 'community'] as const) {
+      const options = { ...createBaseOptions(), viewMode };
+      const upEvent = makeKeyEvent({ key: 'ArrowUp' });
+      const downEvent = makeKeyEvent({ key: 'ArrowDown' });
+
+      handleFullscreenKeyDown(upEvent, options);
+      expect(options.onScrollCurrentView).toHaveBeenCalledWith(-1);
+      expect(options.onPrevHighlight).not.toHaveBeenCalled();
+
+      handleFullscreenKeyDown(downEvent, options);
+      expect(options.onScrollCurrentView).toHaveBeenCalledWith(1);
+      expect(options.onNextHighlight).not.toHaveBeenCalled();
+    }
+  });
+
+  it('preserves direct number key seek (1-9) in summary view', () => {
+    const options = createBaseOptions();
+    const eventDigit3 = makeKeyEvent({ key: '3' });
+
+    const handled = handleFullscreenKeyDown(eventDigit3, options);
+    expect(handled).toBe(true);
+    expect(options.onNumberKeySeek).toHaveBeenCalledWith(3);
+    expect(options.onScrollCurrentView).not.toHaveBeenCalled();
+  });
+
+  it('preserves node navigation shortcuts (K and J) for seeking highlights', () => {
+    const options = createBaseOptions();
+    const eventK = makeKeyEvent({ key: 'k' });
+    const eventJ = makeKeyEvent({ key: 'j' });
+
+    const handledK = handleFullscreenKeyDown(eventK, options);
+    expect(handledK).toBe(true);
+    expect(options.onPrevHighlight).toHaveBeenCalledTimes(1);
+
+    const handledJ = handleFullscreenKeyDown(eventJ, options);
+    expect(handledJ).toBe(true);
+    expect(options.onNextHighlight).toHaveBeenCalledTimes(1);
   });
 });

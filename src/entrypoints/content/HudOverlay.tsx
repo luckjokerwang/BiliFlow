@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { browser } from 'wxt/browser';
 import { Loader2, AlertCircle, RotateCcw, FileText, Settings, Zap } from 'lucide-react';
 import { HighlightItem, HudViewMode } from '../../types';
+import {
+  attachHudWheelIsolation,
+  calculateHudScrollTop,
+} from '../../utils/hudNavigation';
 import { alignElementInViewport } from '../../utils/scrollPositioning';
 import {
   calculateTimelineMarkers,
@@ -98,6 +102,14 @@ export const HudOverlay: React.FC = () => {
     if (isOpen && openedByUserRef.current) {
       hudContainerRef.current?.focus();
     }
+  }, [isOpen]);
+
+  // 阻止 HUD 弹窗内的滚轮/触控板滑动事件冒泡穿透触发 B 站音量调节
+  useEffect(() => {
+    if (!isOpen) return;
+    const container = hudContainerRef.current;
+    if (!container) return;
+    return attachHudWheelIsolation(container);
   }, [isOpen]);
 
   // 关闭时恢复此前焦点；若来源节点已卸载则回退到关闭态打开按钮。
@@ -359,17 +371,6 @@ export const HudOverlay: React.FC = () => {
     onRefresh: handleRefreshCurrentView,
     onCopyMarkdown: handleCopyMarkdown,
     onSearchTranscript: handleSearchTranscript,
-    onPrevHighlightArrow: () => {
-      if (!summary?.highlights || summary.highlights.length === 0) return;
-      const next = Math.max(selectedIndex - 1, 0);
-      handleJump(summary.highlights[next], next);
-    },
-    onNextHighlightArrow: () => {
-      if (!summary?.highlights || summary.highlights.length === 0) return;
-      const next = Math.min(selectedIndex + 1, summary.highlights.length - 1);
-      handleJump(summary.highlights[next], next);
-    },
-
     onScrollCurrentView: (direction) => {
       const container =
         viewMode === 'transcript'
@@ -379,9 +380,12 @@ export const HudOverlay: React.FC = () => {
           : scrollContainerRef.current;
       if (!container) return;
       markUserManualAction();
-      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-      const next = Math.max(0, Math.min(maxScrollTop, container.scrollTop + direction * 96));
-      container.scrollTop = next;
+      container.scrollTop = calculateHudScrollTop(
+        container.scrollTop,
+        container.scrollHeight,
+        container.clientHeight,
+        direction
+      );
     },
 
     hasSummary: Boolean(summary?.highlights?.length),
@@ -495,6 +499,9 @@ export const HudOverlay: React.FC = () => {
           role="dialog"
           aria-label="BiliFlow 视频总结"
           tabIndex={-1}
+          onWheel={(e) => {
+            e.stopPropagation();
+          }}
           className={`fixed top-[68px] right-6 w-[370px] sm:w-[410px] max-h-[min(585px,calc(100vh-8rem))] flex flex-col rounded-2xl border shadow-2xl backdrop-blur-xl pointer-events-auto transition-all duration-200 overflow-hidden animate-fade-in ${
             isDark
               ? 'bg-[#0f172a]/95 border-slate-700/80 text-slate-100 shadow-sky-950/40'
