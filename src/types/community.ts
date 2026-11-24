@@ -7,6 +7,7 @@ export interface CommunityCommentItem {
   publishedAt: number;
   isPinned: boolean;
   isUpLiked: boolean;
+  subReplies?: CommunityCommentItem[];
 }
 
 export interface CommunityDanmakuItem {

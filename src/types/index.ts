@@ -155,6 +155,7 @@ export interface VideoPreflightMetadata {
   officialChapters?: CreatorChapter[];
   danmakuHeatmapPeaks?: Array<{ timestampSec: number; densityRatio: number }>;
   descriptionTimestamps?: Array<{ seconds: number; title: string }>;
+  description?: string;
 }
 
 

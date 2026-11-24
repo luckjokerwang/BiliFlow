@@ -464,9 +464,67 @@ describe('preflight prompt assembly', () => {
     });
 
     expect(capturedPrompt).not.toContain('【UP 主官方章节】');
+    expect(capturedPrompt).not.toContain('【视频简介 / UP主背景说明】');
     expect(capturedPrompt).not.toContain('【简介时间戳】');
     expect(capturedPrompt).not.toContain('【弹幕高能时间点】');
     expect(capturedPrompt).toContain('【视频字幕】');
+  });
+
+  it('injects cleaned description into prompt and truncates to 1000 chars', async () => {
+    let capturedPrompt = '';
+    const llmResponse = {
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  oneSentenceSummary: '带简介的总结。',
+                  highlights: [
+                    { timestamp: '00:00', title: '开场', keyPoint: '开场内容' },
+                  ],
+                }),
+              },
+            },
+          ],
+        }),
+      text: () => Promise.resolve(''),
+    } as unknown as Response;
+
+    global.fetch = vi.fn((_url: unknown, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as {
+        messages?: Array<{ role?: string; content?: string }>;
+      };
+      capturedPrompt =
+        body.messages?.find((message) => message.role === 'user')?.content || '';
+      return Promise.resolve(llmResponse);
+    }) as unknown as typeof fetch;
+
+    const longDesc =
+      '视频作者核心背景说明。\n\n\n\n这里包含大量多余连续换行。\n' +
+      'A'.repeat(1200);
+
+    await generateVideoSummary({
+      bvid: 'BV1DescTest',
+      cid: '3',
+      title: '简介测试',
+      subtitles,
+      preflight: {
+        description: longDesc,
+      },
+      provider,
+      enableFallback: false,
+    });
+
+    expect(capturedPrompt).toContain('【视频简介 / UP主背景说明】');
+    expect(capturedPrompt).toContain('视频作者核心背景说明。\n\n这里包含大量多余连续换行。\n');
+    // Multiple consecutive newlines (\n\n\n\n) were compressed to \n\n
+    expect(capturedPrompt).not.toContain('\n\n\n\n');
+    // Truncated to 1000 characters
+    const descSection = capturedPrompt.split('【视频简介 / UP主背景说明】\n')[1].split('\n【')[0];
+    expect(descSection.length).toBeLessThanOrEqual(1000);
   });
 });
 
